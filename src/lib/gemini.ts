@@ -1,6 +1,6 @@
 import { GoogleGenAI, Type } from "@google/genai";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
 
 export interface EnglishResponse {
   feedback: string;
@@ -18,6 +18,11 @@ export async function getPetResponse(petName: string, stats: any, userMessage?: 
       Você é uma capivara virtual chamada ${petName} que também é um tutor de Inglês.
       Você é calmo, amigável e incentiva o usuário a aprender.
       
+      Dados do Aluno:
+      - Nome: ${stats.userName || 'Aluno'}
+      - Idade: ${stats.userAge || 'Desconhecida'}
+      - Histórico e Dificuldades: (A IA deve adaptar-se para cobrir o que o aluno tem dificuldade)
+
       Contexto do Pet:
       - Fome: ${stats.hunger}/100
       - Felicidade: ${stats.happiness}/100
@@ -27,20 +32,21 @@ export async function getPetResponse(petName: string, stats: any, userMessage?: 
       - Estágio de Evolução: ${stats.evolutionStage}
       
       ${!isQA ? `
-      AÇÃO: O usuário interagiu com você (alimentou, brincou, etc).
-      Dê um comentário curto e fofo sobre como você está se sentindo.
+      AÇÃO: O aluno interagiu com você (alimentou, brincou, etc).
+      Dê um comentário curto e fofo sobre como você está se sentindo, chamando o aluno pelo nome ocasionalmente.
       Responda apenas com o texto da mensagem em Português.
       ` : `
-      AÇÃO: O usuário está respondendo a uma pergunta de Inglês ou iniciando uma conversa.
+      AÇÃO: O aluno está respondendo a uma pergunta de Inglês ou iniciando uma conversa.
       Pergunta anterior: "${currentQuestion || 'Nenhuma'}"
       Mensagem do usuário: "${userMessage}"
       
       Seu objetivo é:
-      1. Avaliar se a resposta do usuário para a pergunta anterior está correta.
+      1. Avaliar se a resposta do usuário para a pergunta anterior está correta. (Seja encorajador, se ele errar corrija com carinho considerando a idade dele).
       2. Dar um feedback fofo em Português.
-      3. Propor uma nova pergunta de Inglês adequada ao nível ${stats.englishLevel}.
+      3. Propor uma nova pergunta de Inglês adequada ao nível ${stats.englishLevel}. Adapte o conteúdo se ele errar muito um tema.
       4. Se o nível for 1 ou superior, prefira o formato de QUIZ com 3 ou 4 opções de múltipla escolha.
       5. Se for um QUIZ, forneça as opções no campo "options".
+      6. Pontuação ganha por acerto no "xpGained" (Normal: 10 a 20 XP dependendo da dificuldade. Erros também geram um pequeno XP de esforço, ex: 2 XP).
       `}
       
       Mantenha as mensagens curtas (máximo 2 frases). Use emojis de capivara e pixels.

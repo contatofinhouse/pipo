@@ -1,29 +1,57 @@
+import React from 'react';
 import { motion, AnimatePresence } from "motion/react";
 import { PetState, FoodType } from "../types";
 import { cn } from "../lib/utils";
+import { COLLECTIBLES } from "../constants";
 
 interface PetProps {
   state: PetState;
   isActionActive: string | null;
   onPet: () => void;
+  onRemoveItem?: (id: string) => void;
   isLevelUp?: boolean;
   isEvolving?: boolean;
   foodType?: FoodType | null;
+  weather?: 'SUNNY' | 'RAINY';
+  isSick?: boolean;
+  message?: string;
 }
 
-export default function Pet({ state, isActionActive, onPet, isLevelUp, isEvolving, foodType }: PetProps) {
+export default function Pet({ state, isActionActive, onPet, onRemoveItem, isLevelUp, isEvolving, foodType, weather, isSick, message }: PetProps) {
+  const [removingItemId, setRemovingItemId] = React.useState<string | null>(null);
+
   const isHappy = state.happiness > 60 && state.hunger > 40;
   const isSad = state.happiness < 30 || state.hunger < 20;
-  const isSick = state.health < 40;
+  const isWeak = state.health < 40;
   const isDead = state.health <= 0;
   const isVeryHappy = state.health > 70 && state.hunger > 70 && state.happiness > 70 && state.energy > 70;
 
   const stage = state.evolutionStage || 'BABY';
 
+  const getEquipmentStyle = (id: string) => {
+    switch (id) {
+      case 'red_hat': return "top-[-25px] right-2 text-5xl z-30";
+      case 'sunglasses': return "top-4 right-[-4px] text-5xl z-20";
+      case 'top_hat': return "top-[-45px] right-2 text-6xl z-30";
+      case 'crown': return "top-[-35px] right-2 text-6xl z-30 animate-pulse";
+      case 'wizard_hat': return "top-[-60px] right-[-10px] text-7xl z-30";
+      case 'scarf': return "bottom-4 right-2 text-5xl z-20";
+      case 'bow_tie': return "bottom-6 right-8 text-4xl z-20";
+      case 'cape': return "bottom-0 left-[-40px] text-7xl scale-x-[-1] z-0 opacity-80";
+      default: return "top-0 right-0 text-3xl";
+    }
+  };
+
+  const equipped = state.equippedItems?.map(id => {
+    const baseId = id.split('-')[0];
+    const collectible = COLLECTIBLES.find(c => c.id === baseId);
+    return collectible ? { ...collectible, instanceId: id } : null;
+  }).filter(Boolean) as any[] || [];
+
   // Determine color based on state and evolution
   const getBodyColor = () => {
     if (isDead) return "bg-stone-400";
-    if (isSick) return "bg-emerald-200";
+    if (isWeak || isSick) return "bg-emerald-200";
     if (isSad) return "bg-stone-500";
     
     if (stage === 'BABY') return "bg-[#A67C52]"; // Lighter brown
@@ -94,13 +122,46 @@ export default function Pet({ state, isActionActive, onPet, isLevelUp, isEvolvin
         )}
       </AnimatePresence>
 
+      {/* Weather: Rain */}
+      {weather === 'RAINY' && (
+        <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
+          {[...Array(15)].map((_, i) => (
+            <motion.div
+              key={`rain-${i}`}
+              initial={{ y: -50, x: Math.random() * 250 }}
+              animate={{ y: 350, x: (Math.random() - 0.5) * 50 + (i * 15) }}
+              transition={{ duration: 0.8 + Math.random(), repeat: Infinity, ease: "linear" }}
+              className="absolute w-[2px] h-4 bg-blue-400/50"
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Speech Bubble */}
+      <AnimatePresence>
+        {message && !state.isSleeping && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.5, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.5 }}
+            className="absolute -top-32 left-1/2 -translate-x-1/2 z-[60] w-48"
+          >
+            <div className="bg-white border-4 border-black p-2 relative shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
+              <p className="text-[8px] font-bold uppercase text-center leading-tight">{message}</p>
+              {/* Triangle Tail */}
+              <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[10px] border-l-transparent border-r-[10px] border-r-transparent border-t-[12px] border-t-black"></div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Shadow - Pixelated */}
       <motion.div 
         className="absolute bottom-4 w-32 h-4 bg-black/10"
         animate={{
-          scale: state.isSleeping ? [1, 1.1, 1] : [1, 1.2, 1],
+          scale: state.isSleeping ? [1, 1.05, 1] : [1, 1.08, 1],
         }}
-        transition={{ duration: 2, repeat: Infinity, ease: (v) => Math.floor(v * 4) / 4 }}
+        transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
       />
 
       {/* Main Body - Pixelated */}
@@ -141,10 +202,11 @@ export default function Pet({ state, isActionActive, onPet, isLevelUp, isEvolvin
           y: [0, 10, 0],
           scaleX: [1, 1.02, 1]
         } : isActionActive === 'PLAY' ? {
-          y: [0, -60, 0],
-          rotate: [0, 20, -20, 20, 0],
-          scale: [1, 1.15, 0.9, 1.1, 1],
-          transition: { duration: 0.6, repeat: Infinity, ease: "easeInOut" }
+          y: [0, -60, 0, -60, 0],
+          x: [0, 40, -40, 40, 0],
+          rotate: [0, 360, 720, 360, 0], // Cambalhota!
+          scale: [1, 1.2, 0.8, 1.2, 1],
+          transition: { duration: 1.2, repeat: Infinity, ease: "easeInOut" }
         } : isActionActive === 'FEED' ? {
           y: [0, -50, 0, 0, 0],
           scaleY: [1, 1.2, 0.8, 1.05, 1],
@@ -165,13 +227,13 @@ export default function Pet({ state, isActionActive, onPet, isLevelUp, isEvolvin
           rotate: [0, 2, -2, 0],
           transition: { duration: 0.5, repeat: 2 }
         } : {
-          scaleY: [1, 1.05, 1],
-          y: [0, -4, 0]
+          scaleY: [1, 1.02, 1],
+          y: [0, -2, 0]
         }}
         transition={{ 
-          duration: isEvolving ? 2 : state.isSleeping ? 3 : isActionActive === 'PLAY' ? 0.5 : 2, 
+          duration: isEvolving ? 2 : state.isSleeping ? 4 : isActionActive === 'PLAY' ? 0.5 : 4, 
           repeat: isEvolving ? 0 : isActionActive === 'FEED' ? 0 : Infinity,
-          ease: isEvolving ? "easeInOut" : (v) => Math.floor(v * 4) / 4
+          ease: isEvolving ? "easeInOut" : "easeInOut"
         }}
       >
         {/* Ears - Pixelated (Now inside body for sync) */}
@@ -209,6 +271,39 @@ export default function Pet({ state, isActionActive, onPet, isLevelUp, isEvolvin
             }}
           />
         </div>
+
+        {/* Equipped Clothing */}
+        {equipped.map((item: any) => (
+          <div 
+            key={item.instanceId} 
+            className={cn("absolute cursor-pointer pointer-events-auto transition-transform hover:brightness-110 active:scale-95 group", getEquipmentStyle(item.id))}
+            onClick={(e) => {
+               e.stopPropagation();
+               setRemovingItemId(removingItemId === item.instanceId ? null : item.instanceId);
+            }}
+          >
+            {item.icon}
+            
+            <AnimatePresence>
+               {removingItemId === item.instanceId && (
+                  <motion.button
+                    initial={{ scale: 0, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    exit={{ scale: 0, opacity: 0 }}
+                    onClick={(e) => {
+                       e.stopPropagation();
+                       onRemoveItem?.(item.instanceId);
+                       setRemovingItemId(null);
+                    }}
+                    className="absolute -top-4 -right-4 w-6 h-6 bg-red-500 border-2 border-white rounded-full flex items-center justify-center text-[10px] text-white font-bold shadow-lg z-50 hover:bg-red-600"
+                  >
+                    X
+                  </motion.button>
+               )}
+            </AnimatePresence>
+          </div>
+        ))}
+
         {/* Glow effect for feeding */}
         <AnimatePresence>
           {isActionActive === 'FEED' && (
@@ -319,6 +414,28 @@ export default function Pet({ state, isActionActive, onPet, isLevelUp, isEvolvin
           )}
           {isDead && <div className="w-8 h-1 bg-black/40 mt-1" />}
         </div>
+
+        {/* Umbrella (if raining) */}
+        {weather === 'RAINY' && !state.isSleeping && (
+          <motion.div 
+            initial={{ scale: 0 }}
+            animate={{ scale: 1 }}
+            className="absolute -top-16 -right-8 text-6xl z-30"
+          >
+            ⛱️
+          </motion.div>
+        )}
+
+        {/* Sick Visual (Thermometer) */}
+        {isSick && (
+          <motion.div 
+            animate={{ rotate: [0, 5, -5, 0] }}
+            transition={{ repeat: Infinity, duration: 1 }}
+            className="absolute -top-4 -left-4 text-3xl z-40"
+          >
+            🤒
+          </motion.div>
+        )}
 
         {/* Blush - Pixelated */}
         {isHappy && !state.isSleeping && (
