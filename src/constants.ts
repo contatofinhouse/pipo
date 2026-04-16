@@ -17,6 +17,7 @@ export const INITIAL_STATS: PetState = {
   englishExp: 0,
   evolutionStage: 'EGG',
   eggWarmth: 0,
+  fitness: 50,
 };
 
 export const COLLECTIBLES: { id: string; name: string; icon: string; description: string; rarity: 'common' | 'rare' | 'epic'; category: 'food' | 'clothing' | 'toy' | 'special' | 'scenery'; effect?: any }[] = [
@@ -65,10 +66,11 @@ export const COLLECTIBLES: { id: string; name: string; icon: string; description
 ];
 
 export const DECAY_RATES = {
-  hunger: 0.0001, // per ms (10x slower for better balance)
-  happiness: 0.0008,
+  hunger: 0.0001,
+  happiness: 0.0001,
   energy: 0.0005,
-  energySleep: 0.005, // gain per ms
+  energySleep: 0.005,
+  fitness: 0.00008,
 };
 
 export const THRESHOLDS = {

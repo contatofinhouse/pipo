@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 import { GoogleGenAI, Type } from "@google/genai";
 
 const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
@@ -8,6 +9,76 @@ export interface EnglishResponse {
   nextQuestion: string;
   options?: string[];
   xpGained: number;
+}
+
+export interface PipoNews {
+  weather: string;
+  btc: string;
+  trend: string;
+  news: { title: string; category: string }[];
+}
+
+export async function getDailyNews(userAge: number): Promise<PipoNews> {
+  try {
+    const prompt = `
+      Gere um boletim de notícias curto e divertido para um usuário de ${userAge} anos.
+      O boletim deve ter:
+      1. Uma condição climática lúdica (ex: "Chuva de Pixels", "Sol de Ouro").
+      2. O preço real e atualizado do Bitcoin em dólares (u$).
+      3. Uma hashtag de um assunto/meme que esteja realmente bombando na internet brasileira ou mundial HOJE.
+      4. TRÊS notícias reais e interessantes que aconteceram nas últimas 24h-48h, adaptadas para a idade de ${userAge} anos.
+      
+      Formate como JSON. Exemplo:
+      {
+        "weather": "Céu de Algodão",
+        "btc": "u$ 65.000",
+        "trend": "#CapivaraNoEspaco",
+        "news": [
+          { "title": "Cientistas descobrem novo planeta rosa", "category": "CIÊNCIA" },
+          { "title": "Novo jogo de aventura bate recordes", "category": "GAMES" },
+          { "title": "Exposição de arte digital abre amanhã", "category": "ARTE" }
+        ]
+      }
+    `;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-1.5-flash-latest",
+      contents: prompt,
+      config: {
+        temperature: 1,
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            weather: { type: Type.STRING },
+            btc: { type: Type.STRING },
+            trend: { type: Type.STRING },
+            news: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  title: { type: Type.STRING },
+                  category: { type: Type.STRING }
+                }
+              }
+            }
+          },
+          required: ["weather", "btc", "trend", "news"]
+        }
+      }
+    });
+
+    return JSON.parse(response.text) as PipoNews;
+  } catch (error) {
+    console.error("News Error:", error);
+    return {
+      weather: "Sol de Pixels",
+      btc: "u$ 68k",
+      trend: "#MundoGamer",
+      news: [{ title: "Pipo está pronto para novas notícias!", category: "AVISO" }]
+    };
+  }
 }
 
 export async function getPetResponse(petName: string, stats: any, userMessage?: string, currentQuestion?: string): Promise<string | EnglishResponse> {
@@ -53,7 +124,7 @@ export async function getPetResponse(petName: string, stats: any, userMessage?: 
     `;
 
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model: "gemini-1.5-flash-latest",
       contents: prompt,
       config: {
         temperature: 0.7,

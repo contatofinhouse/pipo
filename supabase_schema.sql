@@ -41,9 +41,13 @@ CREATE TABLE public.game_state (
   health INTEGER DEFAULT 100 NOT NULL,
   evolution_stage INTEGER DEFAULT 0 NOT NULL,
   inventory JSONB DEFAULT '[]'::jsonb NOT NULL,
+  equipped_items JSONB DEFAULT '[]'::jsonb NOT NULL,
+  placed_items JSONB DEFAULT '[]'::jsonb NOT NULL,
   english_level INTEGER DEFAULT 1 NOT NULL,
   english_points INTEGER DEFAULT 0 NOT NULL,
+  fitness INTEGER DEFAULT 50 NOT NULL,
   streak_days INTEGER DEFAULT 0 NOT NULL,
+  birthday BIGINT,
   last_lesson_date TIMESTAMP WITH TIME ZONE,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );

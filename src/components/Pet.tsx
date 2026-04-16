@@ -48,23 +48,30 @@ export default function Pet({ state, isActionActive, onPet, onRemoveItem, isLeve
     return collectible ? { ...collectible, instanceId: id } : null;
   }).filter(Boolean) as any[] || [];
 
-  // Determine color based on state and evolution
   const getBodyColor = () => {
+    if (state.skinColor) return state.skinColor;
     if (isDead) return "bg-stone-400";
     if (isWeak || isSick) return "bg-emerald-200";
     if (isSad) return "bg-stone-500";
     
-    if (stage === 'BABY') return "bg-[#A67C52]"; // Lighter brown
-    if (stage === 'ADULT') return "bg-[#5D3A1A]"; // Darker brown
-    if (stage === 'LEGENDARY') return "bg-[#FFD700]"; // Golden (or keep brown with aura)
+    if (stage === 'BABY') return "bg-[#C4956A]";        // Muito claro, filhote
+    if (stage === 'KIDS') return "bg-[#A67C52]";        // Claro, criança
+    if (stage === 'TEEN') return "bg-[#8B5E3C]";        // Capivara padrão
+    if (stage === 'MASTER_TEEN') return "bg-[#7A5235]"; // Levemente mais intensa
+    if (stage === 'YOUNG_ADULT') return "bg-[#6B4528]"; // Escurecendo
+    if (stage === 'ADULT') return "bg-[#5D3A1A]";       // Adulto escuro
+    if (stage === 'LEGENDARY') return "bg-[#FFD700]";   // Dourado (Golden)
     return "bg-[#8B5E3C]"; // Capybara brown
   };
 
   const getScale = () => {
-    if (stage === 'BABY') return 0.75;
-    if (stage === 'TEEN') return 1;
-    if (stage === 'ADULT') return 1.25;
-    if (stage === 'LEGENDARY') return 1.4;
+    if (stage === 'BABY') return 0.70;
+    if (stage === 'KIDS') return 0.82;
+    if (stage === 'TEEN') return 0.92;
+    if (stage === 'MASTER_TEEN') return 1;
+    if (stage === 'YOUNG_ADULT') return 1.08;
+    if (stage === 'ADULT') return 1.18;
+    if (stage === 'LEGENDARY') return 1.35;
     return 1;
   };
 
@@ -226,15 +233,22 @@ export default function Pet({ state, isActionActive, onPet, onRemoveItem, isLeve
           scale: [1, 1.05, 1],
           rotate: [0, 2, -2, 0],
           transition: { duration: 0.5, repeat: 2 }
+        } : isActionActive === 'GYM' ? {
+          y: [0, -30, 0, -30, 0],
+          scaleY: [1, 0.8, 1.1, 0.8, 1],
+          transition: { duration: 0.8, repeat: Infinity }
         } : {
-          scaleY: [1, 1.02, 1],
-          y: [0, -2, 0]
+          scaleY: [1, 0.94, 1],
+          scaleX: [1, 1.02, 1],
+          y: [0, 2, 0]
         }}
-        transition={{ 
-          duration: isEvolving ? 2 : state.isSleeping ? 4 : isActionActive === 'PLAY' ? 0.5 : 4, 
-          repeat: isEvolving ? 0 : isActionActive === 'FEED' ? 0 : Infinity,
-          ease: isEvolving ? "easeInOut" : "easeInOut"
-        }}
+        transition={
+          isActionActive === 'FEED' ? { duration: 1.5, times: [0, 0.3, 0.6, 0.8, 1], ease: "easeInOut" } :
+          isActionActive === 'PLAY' ? { duration: 0.5, repeat: Infinity, ease: "easeInOut" } :
+          state.isSleeping ? { duration: 6, repeat: Infinity, times: [0, 0.5, 1], ease: "easeInOut" } :
+          isEvolving ? { duration: 2, ease: "easeInOut" } :
+          { duration: 4, repeat: Infinity, times: [0, 0.4, 1], ease: "easeInOut" }
+        }
       >
         {/* Ears - Pixelated (Now inside body for sync) */}
         <div className="absolute -top-8 flex justify-between w-32 z-0">
@@ -272,6 +286,8 @@ export default function Pet({ state, isActionActive, onPet, onRemoveItem, isLeve
           />
         </div>
 
+        {/* Adereços de fase removidos — a evolução agora é mostrada pelo cenário/quarto */}
+
         {/* Equipped Clothing */}
         {equipped.map((item: any) => (
           <div 
@@ -294,7 +310,7 @@ export default function Pet({ state, isActionActive, onPet, onRemoveItem, isLeve
                        e.stopPropagation();
                        onRemoveItem?.(item.instanceId);
                        setRemovingItemId(null);
-                    }}
+                     }}
                     className="absolute -top-4 -right-4 w-6 h-6 bg-red-500 border-2 border-white rounded-full flex items-center justify-center text-[10px] text-white font-bold shadow-lg z-50 hover:bg-red-600"
                   >
                     X
@@ -339,6 +355,20 @@ export default function Pet({ state, isActionActive, onPet, onRemoveItem, isLeve
               transition={{ duration: 0.5, repeat: 2 }}
               className="absolute inset-0 border-8 border-white/40 z-0"
             />
+          )}
+        </AnimatePresence>
+        
+        {/* Workout / Gym Effect */}
+        <AnimatePresence>
+          {isActionActive === 'GYM' && (
+            <motion.div
+              initial={{ opacity: 0, y: 20, scale: 0 }}
+              animate={{ opacity: 1, y: -80, scale: 1.5 }}
+              exit={{ opacity: 0, scale: 0 }}
+              className="absolute z-30 text-4xl"
+            >
+              🏋️
+            </motion.div>
           )}
         </AnimatePresence>
 

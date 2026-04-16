@@ -44,6 +44,15 @@ export function RankingModal({ rankings, session, onClose }: RankingModalProps) 
                 <div className="flex-1">
                   <p className="font-bold uppercase">{r.name}</p>
                   <p className="text-gray-500">Nível {r.english_level} • {r.english_points} XP • 🔥{r.streak_days || 0}</p>
+                  
+                  {/* Badges Display */}
+                  <div className="flex gap-1 mt-1">
+                    {r.badges?.map((b: string) => (
+                      <span key={b} className="w-4 h-4 bg-yellow-400 border border-black rounded-full flex items-center justify-center text-[6px] shadow-sm" title={b}>
+                        🏆
+                      </span>
+                    ))}
+                  </div>
                 </div>
               </div>
             ))}

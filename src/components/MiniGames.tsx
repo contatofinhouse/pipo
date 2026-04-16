@@ -251,132 +251,413 @@ export function PipoMan({ onClose }: MiniGameProps) {
 
 // ================= PIPO-PONG =================
 export function PipoPong({ onClose }: { onClose: (score: number) => void }) {
-  const [ball, setBall] = useState({ x: 150, y: 150, dx: 2, dy: 2 });
-  const [playerY, setPlayerY] = useState(120), [cpuY, setCpuY] = useState(120);
-  const [score, setScore] = useState(0), [level, setLevel] = useState(1), [gameOver, setGameOver] = useState(false);
+  const [gameState, setGameState] = useState({ score: 0, level: 1, gameOver: false });
+  
+  // Physics Refs
+  const ballRef = useRef({ x: 150, y: 150, dx: 1.8, dy: 1.8 });
+  const playerYRef = useRef(120);
+  const cpuYRef = useRef(120);
+  const scoreRef = useRef(0);
+  const levelRef = useRef(1);
+  const gameOverRef = useRef(false);
+
+  // DOM Refs for Direct Manipulation (Zero-Lag)
+  const ballElemRef = useRef<HTMLDivElement>(null);
+  const playerElemRef = useRef<HTMLDivElement>(null);
+  const cpuElemRef = useRef<HTMLDivElement>(null);
   const boardRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (gameOver) return;
-    const interval = setInterval(() => {
-      setBall(prev => {
-        let { x, y, dx, dy } = prev;
-        x += dx; y += dy;
-        if (y <= 0 || y >= 290) dy *= -1;
-        if (x <= 15 && y >= playerY && y <= playerY + 60) {
-          const speedBoost = 0.3;
-          dx = Math.sign(dx) * (Math.abs(dx) + speedBoost);
-          dx = Math.abs(dx); dy += (y - (playerY + 30)) * 0.1;
-          setScore(s => s + 1); x = 16;
-        }
-        if (x >= 275 && y >= cpuY && y <= cpuY + 60) { dx = -Math.abs(dx); x = 274; }
-        if (x < 0) { setGameOver(true); return prev; }
-        if (x > 310) return { x: 150, y: 150, dx: -2 - (level * 0.5), dy: 2 + (level * 0.5) };
-        return { x, y, dx, dy };
-      });
-      setCpuY(prev => {
-        const target = ball.y - 30, cpuSpeed = 0.05 + (level * 0.02);
-        return prev + (target - prev) * Math.min(1, cpuSpeed);
-      });
-    }, 16);
-    return () => clearInterval(interval);
-  }, [ball, playerY, cpuY, gameOver, level]);
-  useEffect(() => { const nl = Math.floor(score / 5) + 1; if (nl > level) setLevel(nl); }, [score, level]);
-  const handleMove = (e: any) => {
-    if (!boardRef.current) return;
-    const rect = boardRef.current.getBoundingClientRect(), cy = 'touches' in e ? e.touches[0].clientY : e.clientY;
-    setPlayerY(Math.min(240, Math.max(0, cy - rect.top - 30)));
+  const requestRef = useRef<number | null>(null);
+
+  const update = () => {
+    if (gameOverRef.current) return;
+
+    // 1. Physics Calculation
+    const b = ballRef.current;
+    b.x += b.dx;
+    b.y += b.dy;
+
+    // Wall bounce
+    if (b.y <= 0) { b.y = 0; b.dy *= -1; }
+    if (b.y >= 284) { b.y = 284; b.dy *= -1; }
+
+    // Player collision
+    if (b.x <= 20 && b.x >= 10 && b.y + 8 >= playerYRef.current && b.y <= playerYRef.current + 64) {
+      if (b.dx < 0) {
+        b.dx = Math.abs(b.dx) + 0.15; // Smooth speedup
+        b.dy += (b.y - (playerYRef.current + 32)) * 0.12;
+        b.x = 21;
+        scoreRef.current += 1;
+        
+        // Update meta-state (Level Up check)
+        const oldLevel = levelRef.current;
+        levelRef.current = Math.floor(scoreRef.current / 5) + 1;
+        setGameState({ 
+          score: scoreRef.current, 
+          level: levelRef.current, 
+          gameOver: false 
+        });
+      }
+    }
+
+    // CPU collision
+    if (b.x >= 270 && b.x <= 280 && b.y + 8 >= cpuYRef.current && b.y <= cpuYRef.current + 64) {
+      if (b.dx > 0) {
+        b.dx = -Math.abs(b.dx);
+        b.x = 269;
+      }
+    }
+
+    // CPU AI
+    const target = b.y - 24;
+    const cpuSpeed = 1.2 + (levelRef.current * 0.4);
+    if (cpuYRef.current < target) cpuYRef.current += cpuSpeed;
+    else if (cpuYRef.current > target) cpuYRef.current -= cpuSpeed;
+    cpuYRef.current = Math.min(236, Math.max(0, cpuYRef.current));
+
+    // Goal conditions
+    if (b.x < 0) {
+      gameOverRef.current = true;
+      setGameState(prev => ({ ...prev, gameOver: true }));
+      return;
+    }
+    if (b.x > 300) {
+      b.x = 150; b.y = 150;
+      b.dx = -1.8 - (levelRef.current * 0.4);
+      b.dy = (Math.random() - 0.5) * 4;
+    }
+
+    // 2. DIRECT DOM UPDATES (Bypasses React Render)
+    if (ballElemRef.current) ballElemRef.current.style.transform = `translate3d(${b.x}px, ${b.y}px, 0)`;
+    if (playerElemRef.current) playerElemRef.current.style.transform = `translate3d(0, ${playerYRef.current}px, 0)`;
+    if (cpuElemRef.current) cpuElemRef.current.style.transform = `translate3d(0, ${cpuYRef.current}px, 0)`;
+
+    requestRef.current = requestAnimationFrame(update);
   };
+
+  useEffect(() => {
+    // Single Loop Entry
+    gameOverRef.current = false;
+    requestRef.current = requestAnimationFrame(update);
+    return () => { if (requestRef.current) cancelAnimationFrame(requestRef.current); };
+  }, []);
+
+  const handleMove = (e: any) => {
+    if (!boardRef.current || gameOverRef.current) return;
+    const rect = boardRef.current.getBoundingClientRect();
+    const cy = 'touches' in e ? e.touches[0].clientY : e.clientY;
+    playerYRef.current = Math.min(236, Math.max(0, cy - rect.top - 32));
+    // Immediate visual feedback
+    if (playerElemRef.current) playerElemRef.current.style.transform = `translate3d(0, ${playerYRef.current}px, 0)`;
+  };
+
   return (
     <div className="fixed inset-0 z-[100] bg-black flex flex-col items-center justify-center p-4">
-       <div className="w-full max-w-sm border-8 border-white p-3"><GameHUD score={score} level={level} title="PIPO-PONG" onExit={() => onClose(0)} />
-          <div ref={boardRef} onMouseMove={handleMove} onTouchMove={handleMove} className="w-full h-[300px] bg-black border-2 border-white relative cursor-none">
-             <div className="absolute left-1/2 top-0 bottom-0 w-1 border-l-2 border-white/10 border-dashed" />
-             <div className="absolute left-2 w-3 h-16 bg-[#8B5E3C] shadow-[0_0_15px_#8B5E3C]" style={{ top: playerY }} />
-             <div className="absolute right-2 w-3 h-16 bg-white" style={{ top: cpuY }} />
-             <div className="absolute w-4 h-4 bg-yellow-400 shadow-[0_0_8px_yellow]" style={{ left: ball.x, top: ball.y }} />
-          </div>
-       </div>
+      <div className="w-full max-w-sm border-8 border-white p-3 shadow-[0_0_50px_rgba(255,255,255,0.2)]">
+        <GameHUD score={gameState.score} level={gameState.level} title="PIPO-PONG" onExit={() => onClose(0)} />
+        <div 
+          ref={boardRef} 
+          onMouseMove={handleMove} 
+          onTouchMove={handleMove} 
+          className="w-full h-[300px] bg-black border-2 border-white/20 relative cursor-none overflow-hidden"
+        >
+          <div className="absolute left-1/2 top-0 bottom-0 w-0 border-l-2 border-white/10 border-dashed -translate-x-1/2" />
+          
+          <div 
+            ref={playerElemRef}
+            className="absolute left-2 w-3 h-16 bg-[#8B5E3C] shadow-[0_0_15px_#8B5E3C] border border-white/20" 
+            style={{ transform: `translate3d(0, 120px, 0)`, willChange: 'transform' }} 
+          />
+          
+          <div 
+            ref={cpuElemRef}
+            className="absolute right-2 w-3 h-16 bg-white shadow-[0_0_10px_rgba(255,255,255,0.5)]" 
+            style={{ transform: `translate3d(0, 120px, 0)`, willChange: 'transform' }} 
+          />
+          
+          <div 
+            ref={ballElemRef}
+            className="absolute w-4 h-4 bg-yellow-400 shadow-[0_0_15px_yellow] rounded-sm" 
+            style={{ transform: `translate3d(150px, 150px, 0)`, willChange: 'transform' }} 
+          />
+
+          {gameState.gameOver && (
+            <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center z-50 text-center">
+              <h2 className="text-white text-3xl font-black mb-4 uppercase">GAME OVER</h2>
+              <p className="text-yellow-400 mb-8 font-bold">FINAL SCORE: {gameState.score}</p>
+              <button onClick={() => onClose(gameState.score)} className="px-8 py-3 bg-white text-black font-black uppercase">Sair</button>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
 
 // ================= PIPO-ASTEROIDS =================
 export function PipoAsteroids({ onClose }: { onClose: (score: number) => void }) {
-  const [ship, setShip] = useState({ x: 150, y: 150, r: 0, vx: 0, vy: 0 });
-  const [asteroids, setAsteroids] = useState<{id: number, x: number, y: number, r: number, vx: number, vy: number, size: number, shape: string}[]>([]);
-  const [bullets, setBullets] = useState<{x: number, y: number, vx: number, vy: number, life: number}[]>([]);
-  const [score, setScore] = useState(0), [level, setLevel] = useState(1), [gameOver, setGameOver] = useState(false), [keys, setKeys] = useState<{[key: string]: boolean}>({});
+  const [gameState, setGameState] = useState({ score: 0, level: 1, gameOver: false, lives: 3 });
+  const [renderShip, setRenderShip] = useState({ x: 150, y: 150, r: 0 });
+  const [renderAsteroids, setRenderAsteroids] = useState<any[]>([]);
+  const [renderBullets, setRenderBullets] = useState<any[]>([]);
+  const [invincible, setInvincible] = useState(false);
+  
+  const shipRef = useRef({ x: 150, y: 150, r: 0, vx: 0, vy: 0 });
+  const asteroidsRef = useRef<any[]>([]);
+  const bulletsRef = useRef<any[]>([]);
+  const keysRef = useRef<{[key: string]: boolean}>({});
   const boardSize = 300;
   const boardRef = useRef<HTMLDivElement>(null);
+  const requestRef = useRef<number | null>(null);
+  const invincibleRef = useRef(false);
 
-  useEffect(() => {
-    const initial = [];
-    for (let i = 0; i < 3 + level; i++) {
-      initial.push({
-        id: Math.random(), x: Math.random() * boardSize, y: Math.random() * boardSize, r: Math.random() * 360,
-        vx: (Math.random() - 0.5) * (1 + level * 0.2), vy: (Math.random() - 0.5) * (1 + level * 0.2), size: 40, shape: `polygon(10% 10%, 90% 10%, 90% 90%, 10% 90%)`
+  const initLevel = (lvl: number) => {
+    const nextA = [];
+    for (let i = 0; i < 3 + lvl; i++) {
+      nextA.push({
+        id: Math.random(), 
+        x: Math.random() * boardSize, 
+        y: Math.random() * boardSize, 
+        r: Math.random() * 360,
+        vx: (Math.random() - 0.5) * (0.8 + lvl * 0.2), 
+        vy: (Math.random() - 0.5) * (0.8 + lvl * 0.2), 
+        size: 40, 
+        rv: (Math.random() - 0.5) * 4
       });
     }
-    setAsteroids(initial);
-  }, [level]);
+    asteroidsRef.current = nextA;
+    setRenderAsteroids(nextA);
+  };
 
-  useEffect(() => {
-    if (gameOver) return;
-    const interval = setTimeout(() => {
-      let { x: sx, y: sy, r: sr, vx: svx, vy: svy } = ship;
-      if (keys['ArrowLeft']) sr -= 5; if (keys['ArrowRight']) sr += 5;
-      if (keys['ArrowUp']) { svx += Math.cos((sr - 90) * Math.PI / 180) * 0.2; svy += Math.sin((sr - 90) * Math.PI / 180) * 0.2; }
-      svx *= 0.98; svy *= 0.98; sx = (sx + svx + boardSize) % boardSize; sy = (sy + svy + boardSize) % boardSize;
+  const shoot = () => {
+    if (gameState.gameOver) return;
+    const s = shipRef.current;
+    // Rocket emoji points 45deg up-right by default. 
+    // We adjust by -45 to get the "front" vector.
+    const angleRad = (s.r - 45) * Math.PI / 180;
+    const offsetX = Math.cos(angleRad) * 22;
+    const offsetY = Math.sin(angleRad) * 22;
 
-      let nextB = bullets.map(b => ({ ...b, x: (b.x + b.vx + boardSize) % boardSize, y: (b.y + b.vy + boardSize) % boardSize, life: b.life - 1 })).filter(b => b.life > 0);
-      let nextA: any[] = [];
-      let scoreAdd = 0;
-      let hitPlayer = false;
+    bulletsRef.current.push({
+      id: Math.random(),
+      x: s.x + offsetX,
+      y: s.y + offsetY,
+      vx: Math.cos(angleRad) * 8,
+      vy: Math.sin(angleRad) * 8,
+      life: 40
+    });
+  };
 
-      asteroids.forEach(a => {
-         const hitBulletIndex = nextB.findIndex(b => Math.sqrt(Math.pow(a.x - b.x, 2) + Math.pow(a.y - b.y, 2)) < a.size / 2 + 5);
-         if (hitBulletIndex !== -1) {
-            nextB.splice(hitBulletIndex, 1);
-            scoreAdd += 20;
-            if (a.size > 20) {
-               for (let i = 0; i < 2; i++) nextA.push({ id: Math.random(), x: a.x, y: a.y, r: Math.random() * 360, vx: (Math.random() - 0.5) * 3, vy: (Math.random() - 0.5) * 3, size: a.size / 2, shape: a.shape });
-            }
-         } else {
-            nextA.push({ ...a, x: (a.x + a.vx + boardSize) % boardSize, y: (a.y + a.vx + boardSize) % boardSize, r: a.r + 1 });
-         }
-         if (Math.sqrt(Math.pow(a.x - sx, 2) + Math.pow(a.y - sy, 2)) < a.size / 2 + 10) hitPlayer = true;
+  const update = () => {
+    if (gameState.gameOver) return;
+
+    // Ship Physics
+    const s = shipRef.current;
+    const keys = keysRef.current;
+    
+    if (keys['ArrowLeft']) s.r -= 6;
+    if (keys['ArrowRight']) s.r += 6;
+    if (keys['ArrowUp']) {
+      const angleRad = (s.r - 45) * Math.PI / 180;
+      s.vx += Math.cos(angleRad) * 0.28;
+      s.vy += Math.sin(angleRad) * 0.28;
+    }
+    s.vx *= 0.98;
+    s.vy *= 0.98;
+    s.x = (s.x + s.vx + boardSize) % boardSize;
+    s.y = (s.y + s.vy + boardSize) % boardSize;
+
+    // Bullets
+    bulletsRef.current = bulletsRef.current
+      .map(b => ({ ...b, x: (b.x + b.vx + boardSize) % boardSize, y: (b.y + b.vy + boardSize) % boardSize, life: b.life - 1 }))
+      .filter(b => b.life > 0);
+
+    // Asteroids
+    let hitPlayer = false;
+    let scoreGained = 0;
+    const nextAsteroids: any[] = [];
+
+    asteroidsRef.current.forEach(a => {
+      let destroyed = false;
+      bulletsRef.current.forEach((b, bi) => {
+        const d = Math.sqrt(Math.pow(a.x - b.x, 2) + Math.pow(a.y - b.y, 2));
+        if (d < a.size / 2 + 5) {
+          destroyed = true;
+          bulletsRef.current.splice(bi, 1);
+        }
       });
 
-      setShip({ x: sx, y: sy, r: sr, vx: svx, vy: svy }); setBullets(nextB); setAsteroids(nextA);
-      if (scoreAdd > 0) setScore(s => s + scoreAdd);
-      if (hitPlayer) setGameOver(true);
-      if (nextA.length === 0 && !gameOver) setLevel(l => l + 1);
-    }, 16);
-    return () => clearTimeout(interval);
-  }, [keys, gameOver, ship, asteroids, bullets, level]);
+      if (destroyed) {
+        scoreGained += 50;
+        if (a.size > 20) {
+          for (let i = 0; i < 2; i++) {
+            nextAsteroids.push({
+              id: Math.random(),
+              x: a.x, y: a.y,
+              vx: (Math.random() - 0.5) * 4,
+              vy: (Math.random() - 0.5) * 4,
+              size: a.size / 2,
+              r: Math.random() * 360,
+              rv: (Math.random() - 0.5) * 8
+            });
+          }
+        }
+      } else {
+        a.x = (a.x + a.vx + boardSize) % boardSize;
+        a.y = (a.y + a.vy + boardSize) % boardSize;
+        a.r += a.rv;
+        nextAsteroids.push(a);
+        
+        if (!invincibleRef.current) {
+          const distToPlayer = Math.sqrt(Math.pow(a.x - s.x, 2) + Math.pow(a.y - s.y, 2));
+          if (distToPlayer < a.size / 2 + 10) hitPlayer = true;
+        }
+      }
+    });
 
-  const shoot = () => { if (!gameOver) setBullets(p => [...p, { x: ship.x, y: ship.y, vx: Math.cos((ship.r - 90) * Math.PI / 180) * 6, vy: Math.sin((ship.r - 90) * Math.PI / 180) * 6, life: 50 }]); };
-  const handlePointer = (e: any) => { if (gameOver || !boardRef.current) return; const rect = boardRef.current.getBoundingClientRect(); const cx = 'touches' in e ? e.touches[0].clientX : e.clientX, cy = 'touches' in e ? e.touches[0].clientY : e.clientY; setShip(p => ({ ...p, r: Math.atan2(cy - rect.top - ship.y, cx - rect.left - ship.x) * (180 / Math.PI) + 90 })); };
+    asteroidsRef.current = nextAsteroids;
+    if (scoreGained > 0) setGameState(prev => ({ ...prev, score: prev.score + scoreGained }));
+    
+    if (hitPlayer) {
+      if (gameState.lives > 1) {
+        setGameState(prev => ({ ...prev, lives: prev.lives - 1 }));
+        s.x = 150; s.y = 150; s.vx = 0; s.vy = 0;
+        invincibleRef.current = true;
+        setInvincible(true);
+        setTimeout(() => {
+          invincibleRef.current = false;
+          setInvincible(false);
+        }, 2000);
+      } else {
+        setGameState(prev => ({ ...prev, lives: 0, gameOver: true }));
+      }
+    }
+
+    if (nextAsteroids.length === 0) {
+        setGameState(prev => {
+            const nl = prev.level + 1;
+            initLevel(nl);
+            return { ...prev, level: nl };
+        });
+    }
+
+    setRenderShip({ x: s.x, y: s.y, r: s.r });
+    setRenderAsteroids([...asteroidsRef.current]);
+    setRenderBullets([...bulletsRef.current]);
+
+    requestRef.current = requestAnimationFrame(update);
+  };
+
+  const handleInteraction = (e: any) => {
+    if (gameState.gameOver || !boardRef.current) return;
+    const rect = boardRef.current.getBoundingClientRect();
+    const cx = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const cy = 'touches' in e ? e.touches[0].clientY : e.clientY;
+    const x = cx - rect.left;
+    const y = cy - rect.top;
+    
+    // Rotate ship to face cursor/finger
+    // The +45 is because the 🚀 is tilted ↗️ by default (+45 deg)
+    const angle = Math.atan2(y - shipRef.current.y, x - shipRef.current.x) * 180 / Math.PI;
+    shipRef.current.r = angle + 45; 
+  };
 
   useEffect(() => {
-    const d = (e: any) => { setKeys(p => ({ ...p, [e.key]: true })); if (e.key === ' ' || e.key === 'Control') shoot(); };
-    const u = (e: any) => setKeys(p => ({ ...p, [e.key]: false }));
-    window.addEventListener('keydown', d); window.addEventListener('keyup', u);
-    return () => { window.removeEventListener('keydown', d); window.removeEventListener('keyup', u); };
-  }, [ship]);
+    initLevel(gameState.level);
+    requestRef.current = requestAnimationFrame(update);
+    
+    const d = (e: any) => { keysRef.current[e.key] = true; if (e.key === ' ' || e.key === 'Control') shoot(); };
+    const u = (e: any) => keysRef.current[e.key] = false;
+    window.addEventListener('keydown', d);
+    window.addEventListener('keyup', u);
+    
+    return () => {
+      if (requestRef.current) cancelAnimationFrame(requestRef.current);
+      window.removeEventListener('keydown', d);
+      window.removeEventListener('keyup', u);
+    };
+  }, []);
 
   return (
-    <div className="fixed inset-0 z-[110] bg-black flex flex-col items-center justify-center p-4">
-      <div className="w-full max-w-sm border-4 border-gray-700 p-3 bg-black">
-        <GameHUD score={score} level={level} title="PIPO-ASTEROIDS" onExit={() => onClose(0)} />
-        <div ref={boardRef} onMouseMove={handlePointer} onTouchMove={handlePointer} className="relative w-full aspect-square bg-black border-2 border-white/10 overflow-hidden">
-          <div className="absolute z-20" style={{ left: ship.x, top: ship.y, transform: `translate(-50%, -50%) rotate(${ship.r}deg)` }}><span className="text-3xl">🚀</span></div>
-          {asteroids.map(a => ( <div key={a.id} className="absolute bg-[#555] border border-white/20" style={{ left: a.x, top: a.y, width: a.size, height: a.size, transform: `translate(-50%, -50%) rotate(${a.r}deg)` }} /> ))}
-          {bullets.map((b, i) => ( <div key={i} className="absolute w-1 h-2 bg-yellow-400" style={{ left: b.x, top: b.y, transform: 'translate(-50%, -50%)' }} /> ))}
+    <div className="fixed inset-0 z-[110] bg-black/95 backdrop-blur-md flex flex-col items-center justify-center p-4 font-pixel">
+      <div className="w-full max-w-sm border-4 border-slate-700 p-3 bg-slate-900 shadow-[0_0_50px_rgba(0,0,0,0.5)]">
+        <GameHUD score={gameState.score} level={gameState.level} title="PIPO-ASTEROIDS" onExit={() => onClose(0)} lives={gameState.lives} />
+        <div 
+          ref={boardRef}
+          onMouseMove={handleInteraction}
+          onTouchMove={handleInteraction}
+          onMouseDown={() => keysRef.current['ArrowUp'] = true}
+          onMouseUp={() => keysRef.current['ArrowUp'] = false}
+          onTouchStart={() => keysRef.current['ArrowUp'] = true}
+          onTouchEnd={() => keysRef.current['ArrowUp'] = false}
+          className="relative w-full aspect-square bg-[#050510] border-2 border-white/5 overflow-hidden rounded-sm cursor-crosshair"
+        >
+          {/* Ship */}
+          <div 
+            className={`absolute z-20 ${invincible ? 'animate-pulse opacity-50' : ''}`} 
+            style={{ transform: `translate3d(${renderShip.x}px, ${renderShip.y}px, 0) rotate(${renderShip.r}deg) translate(-50%, -50%)` }}
+          >
+            <span className="text-3xl drop-shadow-[0_0_8px_white]">🚀</span>
+          </div>
+          
+          {/* Asteroids */}
+          {renderAsteroids.map(a => (
+            <div 
+              key={a.id} 
+              className="absolute bg-slate-700 border-2 border-slate-500 rounded-sm" 
+              style={{ 
+                width: a.size, 
+                height: a.size, 
+                transform: `translate3d(${a.x}px, ${a.y}px, 0) rotate(${a.r}deg) translate(-50%, -50%)` 
+              }} 
+            />
+          ))}
+          
+          {/* Bullets */}
+          {renderBullets.map(b => (
+            <div 
+              key={b.id} 
+              className="absolute w-1 h-3 bg-yellow-400 shadow-[0_0_8px_yellow]" 
+              style={{ transform: `translate3d(${b.x}px, ${b.y}px, 0) translate(-50%, -50%)` }} 
+            />
+          ))}
         </div>
-        <div className="grid grid-cols-2 gap-2 mt-4"><button className="bg-orange-800 p-3 border-2 border-white text-xl active:bg-orange-700" onTouchStart={() => setKeys(p => ({...p, ArrowUp: true}))} onTouchEnd={() => setKeys(p => ({...p, ArrowUp: false}))}>⏫ THRUST</button><button className="bg-red-800 p-3 border-2 border-white text-xl active:bg-red-700" onClick={shoot} onTouchStart={shoot}>🔥 FIRE</button></div>
+        
+        {/* Controls */}
+        <div className="grid grid-cols-2 gap-4 mt-6">
+          <button 
+            className="bg-blue-900/40 p-4 border-2 border-blue-500 text-white text-xs font-bold uppercase active:bg-blue-600 transition-colors shadow-[0_0_10px_rgba(59,130,246,0.3)]"
+            onTouchStart={(e) => { e.stopPropagation(); keysRef.current['ArrowUp'] = true; }}
+            onTouchEnd={(e) => { e.stopPropagation(); keysRef.current['ArrowUp'] = false; }}
+            onMouseDown={(e) => { e.stopPropagation(); keysRef.current['ArrowUp'] = true; }}
+            onMouseUp={(e) => { e.stopPropagation(); keysRef.current['ArrowUp'] = false; }}
+          >
+            ⏬ PULSO
+          </button>
+          <button 
+            className="bg-red-900/40 p-4 border-2 border-red-500 text-white text-xs font-bold uppercase active:bg-red-600 transition-colors shadow-[0_0_10px_rgba(239,68,68,0.3)]"
+            onClick={(e) => { e.stopPropagation(); shoot(); }}
+          >
+            🔥 FOGO
+          </button>
+        </div>
       </div>
-      {gameOver && ( <div className="absolute inset-0 bg-red-950/90 flex flex-col items-center justify-center z-50 p-6 text-center"><h2 className="text-white text-3xl font-black mb-4 uppercase">GAME OVER</h2><button onClick={() => onClose(score)} className="w-full py-5 bg-white text-red-950 font-black">SAIR</button></div> )}
+      
+      {gameState.gameOver && (
+        <motion.div 
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+            className="absolute inset-0 bg-slate-950/95 flex flex-col items-center justify-center z-50 p-6 text-center"
+        >
+            < Award className="text-yellow-500 mb-4" size={48} />
+            <h2 className="text-white text-3xl font-black mb-1 uppercase tracking-tighter">MISSÃO FALHOU</h2>
+            <p className="text-slate-400 text-xs mb-8 uppercase">SCORE FINAL: {gameState.score}</p>
+            <button 
+                onClick={() => onClose(gameState.score)} 
+                className="w-full py-4 bg-white text-slate-950 font-black uppercase text-xs"
+            >
+                Voltar ao Pipo
+            </button>
+        </motion.div>
+      )}
     </div>
   );
 }

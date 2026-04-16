@@ -55,7 +55,7 @@ export default function EggHatch({ warmth, onTap, onHatch }: EggHatchProps) {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ delay: 0.5 }}
-        className="text-[10px] text-gray-400 uppercase mb-8 z-10"
+        className="text-[12px] text-gray-400 uppercase mb-8 z-10"
       >
         Toque para aquecer e chocar o ovo
       </motion.p>
@@ -70,7 +70,7 @@ export default function EggHatch({ warmth, onTap, onHatch }: EggHatchProps) {
             background: warmth < 30 ? '#4a90d9' : warmth < 60 ? '#f5a623' : warmth < 90 ? '#e74c3c' : '#ff6b6b'
           }}
         />
-        <span className="absolute inset-0 flex items-center justify-center text-[8px] font-bold uppercase">
+        <span className="absolute inset-0 flex items-center justify-center text-[10px] font-bold uppercase">
           Calor: {Math.round(warmth)}%
         </span>
       </div>
@@ -121,21 +121,21 @@ export default function EggHatch({ warmth, onTap, onHatch }: EggHatchProps) {
             >
               {/* Crack marks appear as warmth increases */}
               {warmth > 40 && (
-                <div className="absolute top-8 left-6 text-[10px] text-gray-500 opacity-60" style={{ transform: 'rotate(-20deg)' }}>
+                <div className="absolute top-8 left-6 text-[12px] text-gray-500 opacity-60" style={{ transform: 'rotate(-20deg)' }}>
                   ╱
                 </div>
               )}
               {warmth > 60 && (
-                <div className="absolute top-12 right-7 text-[10px] text-gray-500 opacity-70" style={{ transform: 'rotate(15deg)' }}>
+                <div className="absolute top-12 right-7 text-[12px] text-gray-500 opacity-70" style={{ transform: 'rotate(15deg)' }}>
                   ╲╱
                 </div>
               )}
               {warmth > 80 && (
                 <>
-                  <div className="absolute top-6 right-10 text-[10px] text-gray-400" style={{ transform: 'rotate(-30deg)' }}>
+                  <div className="absolute top-6 right-10 text-[12px] text-gray-400" style={{ transform: 'rotate(-30deg)' }}>
                     ╱╲
                   </div>
-                  <div className="absolute bottom-12 left-8 text-[10px] text-gray-400" style={{ transform: 'rotate(10deg)' }}>
+                  <div className="absolute bottom-12 left-8 text-[12px] text-gray-400" style={{ transform: 'rotate(10deg)' }}>
                     ╱
                   </div>
                 </>
@@ -155,9 +155,7 @@ export default function EggHatch({ warmth, onTap, onHatch }: EggHatchProps) {
                   style={{ background: `radial-gradient(circle, ${getGlowColor()}, transparent 60%)` }}
                 />
               )}
-            </div>
-
-            {/* Tap ripple effect */}
+            </div>              {/* Tap ripple effect */}
             <motion.div
               key={warmth}
               initial={{ scale: 0.8, opacity: 0.5 }}
@@ -229,7 +227,7 @@ export default function EggHatch({ warmth, onTap, onHatch }: EggHatchProps) {
 
       {/* Tap counter */}
       <motion.p
-        className="text-[10px] text-gray-500 mt-8 uppercase z-10"
+        className="text-[12px] text-gray-500 mt-8 uppercase z-10"
         animate={{ opacity: [0.5, 1, 0.5] }}
         transition={{ duration: 2, repeat: Infinity }}
       >

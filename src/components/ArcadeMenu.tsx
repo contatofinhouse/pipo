@@ -2,7 +2,7 @@ import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface ArcadeMenuProps {
-  onGameSelect: (game: 'NONE' | 'TENNIS' | 'BOUNCE' | 'BALL_PIT' | 'PIPOMAN' | 'PONG' | 'ASTEROIDS', actionUpdate?: boolean) => void;
+  onGameSelect: (game: 'NONE' | 'TENNIS' | 'BOUNCE' | 'BALL_PIT' | 'PIPOMAN' | 'PONG' | 'ASTEROIDS' | 'TETRIS' | 'SNAKE' | 'WORMS' | 'FARM', actionUpdate?: boolean) => void;
   onClose: () => void;
 }
 
@@ -53,6 +53,41 @@ export function ArcadeMenu({ onGameSelect, onClose }: ArcadeMenuProps) {
           >
             <span className="text-3xl">⚽</span>
             <span className="text-[10px] font-bold uppercase">Bola Saltitante</span>
+          </button>
+          <button 
+            onClick={() => onGameSelect('PIPOMAN')}
+            className="flex flex-col items-center gap-2 p-4 border-4 border-black bg-yellow-300 hover:bg-yellow-400 transition-colors"
+          >
+            <span className="text-3xl">👻</span>
+            <span className="text-[10px] font-bold uppercase">Pipo-Man</span>
+          </button>
+          <button 
+            onClick={() => onGameSelect('TETRIS')}
+            className="flex flex-col items-center gap-2 p-4 border-4 border-black bg-blue-100 hover:bg-blue-200 transition-colors"
+          >
+            <span className="text-3xl">🧱</span>
+            <span className="text-[10px] font-bold uppercase">Pipo-Tetris</span>
+          </button>
+          <button 
+            onClick={() => onGameSelect('SNAKE')}
+            className="flex flex-col items-center gap-2 p-4 border-4 border-black bg-emerald-200 hover:bg-emerald-300 transition-colors"
+          >
+            <span className="text-3xl">🐍</span>
+            <span className="text-[10px] font-bold uppercase">Pipo-Snake</span>
+          </button>
+          <button 
+            onClick={() => onGameSelect('WORMS')}
+            className="flex flex-col items-center gap-2 p-4 border-4 border-black bg-rose-200 hover:bg-rose-300 transition-colors"
+          >
+            <span className="text-3xl">🐛</span>
+            <span className="text-[10px] font-bold uppercase">Pipo-Worms</span>
+          </button>
+          <button 
+            onClick={() => onGameSelect('FARM')}
+            className="flex flex-col items-center gap-2 p-4 border-4 border-black bg-lime-200 hover:bg-lime-300 transition-colors"
+          >
+            <span className="text-3xl">🌱</span>
+            <span className="text-[10px] font-bold uppercase">Pipo-Farm</span>
           </button>
           <button 
             onClick={() => onGameSelect('BALL_PIT', true)}
