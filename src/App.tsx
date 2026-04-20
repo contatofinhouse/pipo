@@ -74,7 +74,8 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
         isSleeping: parsedStored?.isSleeping || false,
         poopCount: parsedStored?.poopCount || 0,
         userStreak: initialGameState.streak_days ?? (parsedStored?.userStreak || 0),
-        fitness: initialGameState.fitness ?? (parsedStored?.fitness || 50)
+        fitness: initialGameState.fitness ?? (parsedStored?.fitness || 50),
+        skinColor: initialGameState.skin_color ?? parsedStored?.skinColor
       };
     }
 
@@ -170,6 +171,7 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
   const [currentQuestionData, setCurrentQuestionData] = useState<any>(null);
   const [questionsAnswered, setQuestionsAnswered] = useState(0);
   const [correctStreak, setCorrectStreak] = useState(0);
+  const hasShownStreakMessage = useRef(false);
   // Carrega as notícias reais resumidas pelo Pipo baseadas na idade
   /* useEffect(() => {
     if (session && profile && !dailyUpdate) {
@@ -181,6 +183,16 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
   }, [session, profile]); */
 
   const [quizFeedback, setQuizFeedback] = useState<'correct' | 'wrong' | 'combo' | null>(null);
+
+  // Auto-clear message bubble
+  useEffect(() => {
+    if (message && message !== "Olá! Eu sou o Pipo. Vamos brincar?") {
+      const timer = setTimeout(() => {
+        setMessage("");
+      }, 6000); // 6 segundos para sumir mais rápido
+      return () => clearTimeout(timer);
+    }
+  }, [message]);
 
   // Métrica de Maestria (0-100%)
 
@@ -292,7 +304,26 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
           }));
           setUnits(mappedUnits);
 
-          // 5. Nivelamento Meritocrático: O English Level será rigidamente guiado pela quantidade de UNITS concluídas integralmente.
+          // 4.5. Pre-fetching for Offline Mode
+          const currentUnitObj = mappedUnits.find(u => u.lessons.some(l => l.status === 'unlocked'));
+          if (currentUnitObj) {
+            const currentIdx = mappedUnits.indexOf(currentUnitObj);
+            const unitsToCache = mappedUnits.slice(currentIdx, currentIdx + 4);
+            const lessonIds = unitsToCache.flatMap(u => u.lessons.map(l => l.id));
+            
+            // Buscar questões em lote silenciosamente para cache local
+            const { data: offlineQuestions } = await supabase
+              .from('learning_questions')
+              .select('*')
+              .in('lesson_id', lessonIds);
+            
+            if (offlineQuestions) {
+              localStorage.setItem('pipo_offline_questions', JSON.stringify(offlineQuestions));
+              console.log(`[PIPO-OFFLINE] Cached ${offlineQuestions.length} questions for next 4 units.`);
+            }
+          }
+
+          // 5. Nivelamento Meritocrático
           let realLevel = 1;
           for (const u of mappedUnits) {
             const hasLessons = u.lessons && u.lessons.length > 0;
@@ -359,8 +390,20 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
       if (finalQuestions.length === 0) {
         console.log("[PIPO-DEBUG] No specific difficulty questions found, loading all lesson questions.");
         const { data: fallback, error: fbError } = await supabase.from('learning_questions').select('*').eq('lesson_id', lessonId);
-        if (fbError) throw fbError;
-        finalQuestions = fallback || [];
+        if (!fbError) finalQuestions = fallback || [];
+      }
+
+      // 1.5. CHECK OFFLINE CACHE if online fetch failed or returned nothing
+      if (finalQuestions.length === 0) {
+        console.log("[PIPO-DEBUG] Checking offline cache...");
+        const cached = localStorage.getItem('pipo_offline_questions');
+        if (cached) {
+          const allCached = JSON.parse(cached);
+          finalQuestions = allCached.filter((q: any) => q.lesson_id === lessonId);
+          if (finalQuestions.length > 0) {
+            console.log(`[PIPO-OFFLINE] Loaded ${finalQuestions.length} questions from cache.`);
+          }
+        }
       }
 
       if (finalQuestions.length > 0) {
@@ -429,8 +472,16 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
         .select();
 
       if (error) {
-        console.error("[PIPO-DEBUG] Error saving lesson progress:", error);
-        throw error;
+        console.error("[PIPO-DEBUG] Error saving lesson progress (likely offline):", error);
+        // Salva localmente para sincronização futura
+        const pendingSync = JSON.parse(localStorage.getItem('pipo_pending_sync') || '[]');
+        pendingSync.push({
+          lesson_id: selectedLessonId,
+          mastery_score: stats.score,
+          is_completed: stats.score >= 80,
+          last_attempt_at: new Date().toISOString()
+        });
+        localStorage.setItem('pipo_pending_sync', JSON.stringify(pendingSync));
       }
 
       console.log("[PIPO-DEBUG] Progress saved successfully:", data);
@@ -491,6 +542,9 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
 
     // 3. Injetar +10 XP atomicamente e rodar roleta de LOOT aos 200 XP
     let itemMessage = "";
+    const updatedPoints = ((state.englishExp || 0) + 10);
+    const updatedLifetime = ((state.lifetimeXP || 0) + 10);
+
     setState(prev => {
       let newExp = (prev.englishExp || 0) + 10;
       let newInventory = Array.isArray(prev.inventory) ? [...prev.inventory] : [];
@@ -514,6 +568,19 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
         happiness: Math.min(100, prev.happiness + 2)
       };
     });
+
+    // 4. PERSISTÊNCIA CRÍTICA: Salva XP imediatamente no game_state
+    // Isso evita perda de dados se o usuário der Refresh (F5) antes do useEffect de sync rodar
+    if (session?.user?.id) {
+      supabase.from('game_state').update({
+        english_points: updatedPoints % 200,
+        lifetime_xp: updatedLifetime,
+        updated_at: new Date().toISOString()
+      }).eq('user_id', session.user.id).then(({ error }) => {
+        if (error) console.error("[PIPO-DEBUG] Instant XP save failed:", error);
+      });
+    }
+
     if (itemMessage) setMessage(itemMessage);
   };
 
@@ -553,6 +620,8 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
         fitness: Math.round(Number(state.fitness) || 50),
         birthday: state.birthday || Date.now(),
         farm_plots: Array.isArray(state.farmPlots) ? state.farmPlots : [],
+        skin_color: state.skinColor,
+        badges: Array.isArray(state.badges) ? state.badges : [],
         updated_at: new Date().toISOString()
       };
 
@@ -666,7 +735,7 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
 
   // Streak check: penalidade se não fez lição ontem
   useEffect(() => {
-    if (!session?.user?.id || state.evolutionStage === 'EGG') return;
+    if (!session?.user?.id || state.evolutionStage === 'EGG' || hasShownStreakMessage.current) return;
 
     const checkStreak = async () => {
       const { data } = await supabase
@@ -697,6 +766,7 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
           // Entre 24h e 48h: aviso
           setMessage("📚 Ei! Faz tempo que o Pipo não aprende inglês. Vamos estudar?");
         }
+        hasShownStreakMessage.current = true;
       }
     };
 
@@ -708,7 +778,7 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
 
     setState(prev => {
       const isEquippable = item.category === 'clothing';
-      const isPlaceable = item.category === 'scenery';
+      const isPlaceable = item.category === 'scenery' || item.category === 'toy';
       const isConsumable = item.category === 'food' || item.category === 'special';
 
       let newInventory = [...prev.inventory];
@@ -739,9 +809,6 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
         // Use and consume (food, special)
         newInventory.splice(index, 1);
         setMessage(`Pipo usou ${item.name}! Yummy! 🍽️`);
-      } else {
-        // Toys: use but don't consume
-        setMessage(`Pipo brincou com ${item.name}! 🎉`);
       }
 
       return {
@@ -869,7 +936,12 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
       `Pipo comeu ${foodNames[food]} e ficou feliz! 😋`,
       `Que delícia! Pipo adora ${foodNames[food]}! ✨`,
       `Nhac nhac! ${foodNames[food]} deu energia pro Pipo! 💪`,
-      `UAU! Pipo amou ${foodNames[food]}! 🚀`
+      `UAU! Pipo amou ${foodNames[food]}! 🚀`,
+      `Pipo está se sentindo um gourmet com ${foodNames[food]}! 🥖`,
+      `Barriga cheia, coração contente! 💖`,
+      `Isso estava muito bom! Pipo quer mais (depois)!`,
+      `Refeição de campeão! 🏆`,
+      `Pipo se sente mais forte após comer ${foodNames[food]}!`
     ];
     setTimeout(() => setMessage(feedMsgs[Math.floor(Math.random() * feedMsgs.length)]), 1000);
 
@@ -941,7 +1013,12 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
               "Não me acorde sem um bom motivo, ok? Zzz.",
               "Desligando os motores... Fui!",
               "Bateria fraca... Pipo precisa repousar.",
-              "Vou ali contar ovelhinhas e já volto (daqui a umas horas)."
+              "Vou ali contar ovelhinhas e já volto (daqui a umas horas).",
+              "Pipo está entrando em modo de economia de energia. 🔋",
+              "Shhh... O mestre está descansando. 😴",
+              "Bons sonhos de capivara!",
+              "Partiu mundo dos sonhos! 🌈",
+              "Até os astros precisam tirar um cochilo."
             ];
             setMessage(sleepMsgs[Math.floor(Math.random() * sleepMsgs.length)]);
           } else {
@@ -952,7 +1029,12 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
               "Pipo está de volta e com energia total!",
               "Quem é a capiva-astro que acabou de acordar? SOU EU!",
               "Bom dia mundo! O café já está pronto?",
-              "Dormi tanto que acho que evoluí um milímetro!"
+              "Dormi tanto que acho que evoluí um milímetro!",
+              "Energia 100%! Vamos conquistar o dia! ☀️",
+              "Pipo despertou com fome de conhecimento!",
+              "O mestre voltou! Sentiram saudades?",
+              "Cinco minutinhos... brincadeira, tô acordado! 😜",
+              "Sinto que hoje vai ser um dia épico!"
             ];
             setMessage(wakeMsgs[Math.floor(Math.random() * wakeMsgs.length)]);
           }
@@ -974,7 +1056,15 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
     });
 
     if (type === 'GYM') {
-      setMessage("Ufa! Pipo está ficando forte! 💪");
+      const gymMsgs = [
+        "Ufa! Pipo está ficando forte! 💪",
+        "No pain, no gain! Pipo está focado no shape.",
+        "Olha esse bíceps de capivara! 🏋️‍♂️",
+        "Pipo está treinando para o campeonato mundial de fofura!",
+        "Um, dois... um, dois... Pipo não desiste!",
+        "O Pipo fitness é real! 🥗💪"
+      ];
+      setMessage(gymMsgs[Math.floor(Math.random() * gymMsgs.length)]);
       playSound('PLAY'); // Or a custom gym sound if we had one
     }
 
@@ -986,7 +1076,10 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
         "Que alívio! Ambiente limpo! 💎",
         "Faxina nota 10! Agora sim dá pra relaxar.",
         "Xô sujeira! O Pipo está brilhando!",
-        "Cheirinho de pixels novos! Obrigado!"
+        "Cheirinho de pixels novos! Obrigado!",
+        "Um mestre capivara prefere um ambiente zen e limpo.",
+        "Lugar de sujeira é no passado! ✨",
+        "O Pipo agora pode meditar em paz!"
       ];
       setMessage(cleanMsgs[Math.floor(Math.random() * cleanMsgs.length)]);
 
@@ -1003,13 +1096,24 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
         "Seu carinho é digno de um rei!",
         "O universo vibra com nossa amizade! 💎",
         "Você é o escolhido das capivaras!",
-        "Minha aura brilha mais forte com você!"
+        "Minha aura brilha mais forte com você!",
+        "Um toque real para uma capivara lendária.",
+        "Nossa conexão transcende as dimensões!",
+        "Você irradia bondade, humano!",
+        "Sinto o calor do seu espírito!"
       ] : [
         "Isso é tão bom! 🥰",
         "Pipo adora carinho!",
         "Mais um pouquinho, por favor?",
         "Purrr... (se capivaras ronronassem)",
-        "Você é meu melhor amigo!"
+        "Você é meu melhor amigo!",
+        "Sinto o amor em cada pixel! ❤️",
+        "Carinho é o melhor remédio!",
+        "Pipo se sente seguro com você.",
+        "Obrigado por cuidar tão bem de mim! ✨",
+        "Kafuuu! (Linguagem secreta das capivaras feliz)",
+        "A felicidade é um cafuné bem dado.",
+        "Pipo está derretendo de tanta fofura! 😍"
       ];
       setMessage(petMsgs[Math.floor(Math.random() * petMsgs.length)]);
 
@@ -1084,6 +1188,8 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
     setQuestionsAnswered(nextIndex);
     setUserInput("");
 
+    const newLifetimeXP = state.lifetimeXP + xpGained;
+
     setState(prev => {
       let newExp = prev.englishExp + xpGained;
       let newInventory = [...prev.inventory];
@@ -1108,6 +1214,7 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
       return {
         ...prev,
         englishExp: newExp,
+        lifetimeXP: newLifetimeXP,
         inventory: newInventory,
         happiness: newHappiness
       };
@@ -1125,7 +1232,8 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
         streak_days: (state.userStreak || 0) + (questionsAnswered === 0 ? 1 : 0),
         inventory: state.inventory,
         english_level: state.englishLevel,
-        english_points: state.englishExp,
+        english_points: (state.englishExp + xpGained) % 200,
+        lifetime_xp: newLifetimeXP,
         evolution_stage: state.evolutionStage === 'LEGENDARY' ? 4 : state.evolutionStage === 'ADULT' ? 3 : state.evolutionStage === 'TEEN' ? 2 : state.evolutionStage === 'BABY' ? 1 : 0
       }).eq('user_id', session.user.id).then();
     }
@@ -1215,22 +1323,42 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
             onClick={async () => {
               setShowRanking(!showRanking);
               if (!showRanking) {
-                const { data } = await supabase
-                  .from('game_state')
-                  .select('user_id, english_level, english_points, streak_days')
-                  .order('english_level', { ascending: false })
-                  .order('english_points', { ascending: false })
-                  .limit(10);
-                if (data) {
-                  // Busca nomes dos perfis
-                  const userIds = data.map(d => d.user_id);
-                  const { data: profiles } = await supabase.from('profiles').select('id, name').in('id', userIds);
-                  const merged = data.map((d, i) => ({
-                    ...d,
-                    rank: i + 1,
-                    name: profiles?.find(p => p.id === d.user_id)?.name || 'Jogador'
-                  }));
-                  setRankings(merged);
+                try {
+                  // Busca os top 10 jogadores
+                  const { data: rankingData, error: rankingError } = await supabase
+                    .from('game_state')
+                    .select('user_id, english_level, lifetime_xp, english_points, streak_days')
+                    .order('lifetime_xp', { ascending: false })
+                    .limit(10);
+
+                  if (rankingError) throw rankingError;
+
+                  if (rankingData && rankingData.length > 0) {
+                    // Busca os nomes correspondentes na tabela profiles
+                    const userIds = rankingData.map(d => d.user_id);
+                    const { data: profilesData, error: profilesError } = await supabase
+                      .from('profiles')
+                      .select('id, name')
+                      .in('id', userIds);
+
+                    if (profilesError) throw profilesError;
+
+                    // Faz o "join" manual garantindo que o nome apareça
+                    const merged = rankingData.map((d, i) => {
+                      const profileMatch = profilesData?.find(p => p.id === d.user_id);
+                      return {
+                        ...d,
+                        rank: i + 1,
+                        // Usa lifetime_xp se existir, senão usa english_points como fallback visual
+                        lifetime_xp: (d.lifetime_xp !== null && d.lifetime_xp !== undefined) ? d.lifetime_xp : (d.english_points || 0),
+                        name: profileMatch ? profileMatch.name : 'Estudante'
+                      };
+                    });
+
+                    setRankings(merged);
+                  }
+                } catch (err) {
+                  console.error("Erro ao carregar ranking:", err);
                 }
               }
             }}
@@ -1401,6 +1529,13 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
             inventory={state.inventory}
             onClose={() => setShowInventory(false)}
             onUseItem={useItem}
+            onRemoveItem={(index) => {
+              setState(prev => ({
+                ...prev,
+                inventory: prev.inventory.filter((_, i) => i !== index)
+              }));
+              setMessage("Item excluído com sucesso!");
+            }}
             onGrantAll={() => {
               setState(prev => ({
                 ...prev,
@@ -1572,11 +1707,11 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
             </div>
           </div>
           <div className="grid grid-cols-3 gap-x-2 gap-y-1">
-            <StatBar label="HP" value={state.health} icon={Heart} color="bg-red-500" />
+            <StatBar label="Saúde" value={state.health} icon={Heart} color="bg-red-500" />
             <StatBar label="Fome" value={state.hunger} icon={Utensils} color="bg-orange-500" />
             <StatBar label="Humor" value={state.happiness} icon={Gamepad2} color="bg-blue-500" />
-            <StatBar label="NRG" value={state.energy} icon={Sun} color="bg-yellow-500" />
-            <StatBar label="Musculo" value={state.fitness} icon={Dumbbell} color="bg-emerald-500" />
+            <StatBar label="Energia" value={state.energy} icon={Sun} color="bg-yellow-500" />
+            <StatBar label="Músculo" value={state.fitness} icon={Dumbbell} color="bg-emerald-500" />
           </div>
         </div>
 
@@ -1653,228 +1788,373 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
           {/* ═══════════════════════════════════════════════════════ */}
           <div className="absolute inset-0 pointer-events-none overflow-hidden z-[2] rounded-2xl">
 
-            {/* ── BABY: Berçário pastel ── */}
+            {/* ── BABY ── */}
             {state.evolutionStage === 'BABY' && (
               <>
-                <div className="absolute inset-0 bg-gradient-to-b from-pink-200/40 to-sky-200/40" />
-                {/* Nuvens flutuantes */}
-                {[...Array(4)].map((_, i) => (
-                  <motion.div
-                    key={`cloud-b-${i}`}
-                    className="absolute opacity-[0.35]"
-                    style={{ top: `${15 + i * 18}%` }}
-                    animate={{ x: [-80, 500] }}
-                    transition={{ duration: 30 + i * 8, repeat: Infinity, ease: "linear", delay: i * 4 }}
-                  >
-                    <div className="w-20 h-8 bg-white rounded-full relative">
-                      <div className="absolute -top-3 left-4 w-10 h-8 bg-white rounded-full" />
-                      <div className="absolute -top-1 left-8 w-8 h-7 bg-white rounded-full" />
-                    </div>
-                  </motion.div>
-                ))}
-                {/* Estrelinhas piscando */}
-                {[...Array(8)].map((_, i) => (
-                  <motion.div
-                    key={`star-b-${i}`}
-                    className="absolute w-2 h-2 bg-yellow-400 rounded-full"
-                    style={{ top: `${10 + Math.random() * 60}%`, left: `${5 + Math.random() * 90}%` }}
-                    animate={{ opacity: [0.15, 0.4, 0.15], scale: [0.8, 1.3, 0.8] }}
-                    transition={{ duration: 3 + Math.random() * 2, repeat: Infinity, delay: i * 0.6 }}
-                  />
-                ))}
-                {/* Bloquinhos de brinquedo no chão */}
-                <div className="absolute bottom-4 left-6 flex gap-2 opacity-[0.35]">
-                  <div className="w-5 h-5 bg-red-400 border-2 border-red-600 rounded-sm" />
-                  <div className="w-5 h-5 bg-yellow-400 border-2 border-yellow-600 rounded-sm" />
-                  <div className="w-5 h-5 bg-blue-400 border-2 border-blue-600 rounded-sm" />
-                </div>
+                {/* Variante 0: Berçário Pastel (Original) */}
+                {(state.bgVariant === 0 || !state.bgVariant) && (
+                  <>
+                    <div className="absolute inset-0 bg-gradient-to-b from-pink-200/40 to-sky-200/40" />
+                    {[...Array(4)].map((_, i) => (
+                      <motion.div
+                        key={`cloud-b-${i}`}
+                        className="absolute opacity-[0.35]"
+                        style={{ top: `${15 + i * 18}%` }}
+                        animate={{ x: [-80, 500] }}
+                        transition={{ duration: 30 + i * 8, repeat: Infinity, ease: "linear", delay: i * 4 }}
+                      >
+                        <div className="w-20 h-8 bg-white rounded-full relative">
+                          <div className="absolute -top-3 left-4 w-10 h-8 bg-white rounded-full" />
+                          <div className="absolute -top-1 left-8 w-8 h-7 bg-white rounded-full" />
+                        </div>
+                      </motion.div>
+                    ))}
+                    {[...Array(8)].map((_, i) => (
+                      <motion.div
+                        key={`star-b-${i}`}
+                        className="absolute w-2 h-2 bg-yellow-400 rounded-full"
+                        style={{ top: `${10 + Math.random() * 60}%`, left: `${5 + Math.random() * 90}%` }}
+                        animate={{ opacity: [0.15, 0.4, 0.15], scale: [0.8, 1.3, 0.8] }}
+                        transition={{ duration: 3 + Math.random() * 2, repeat: Infinity, delay: i * 0.6 }}
+                      />
+                    ))}
+                  </>
+                )}
+                {/* Variante 1: Jardim de Infância */}
+                {state.bgVariant === 1 && (
+                  <>
+                    <div className="absolute inset-0 bg-gradient-to-b from-green-100/30 to-yellow-100/30" />
+                    {[...Array(5)].map((_, i) => (
+                      <motion.div
+                        key={`flower-b-${i}`}
+                        className="absolute text-4xl opacity-[0.25]"
+                        style={{ left: `${i * 25}%`, bottom: '10%' }}
+                        animate={{ rotate: [-10, 10, -10] }}
+                        transition={{ duration: 4, repeat: Infinity, delay: i }}
+                      >
+                        🌸
+                      </motion.div>
+                    ))}
+                    <div className="absolute top-10 left-10 text-4xl opacity-[0.2]">🧸</div>
+                  </>
+                )}
+                {/* Variante 2: Quarto Intergaláctico */}
+                {state.bgVariant === 2 && (
+                  <>
+                    <div className="absolute inset-0 bg-[#0a0a2a]/30" />
+                    {[...Array(3)].map((_, i) => (
+                      <motion.div
+                        key={`planet-b-${i}`}
+                        className="absolute text-3xl opacity-[0.3]"
+                        style={{ top: `${20 + i * 20}%`, left: `${10 + i * 30}%` }}
+                        animate={{ y: [0, -20, 0] }}
+                        transition={{ duration: 5 + i, repeat: Infinity }}
+                      >
+                        {['🪐', '🌍', '🌕'][i]}
+                      </motion.div>
+                    ))}
+                    <div className="absolute bottom-10 right-10 text-4xl opacity-[0.2] rotate-12">🚀</div>
+                  </>
+                )}
               </>
             )}
 
-            {/* ── KIDS: Playground / Parque ── */}
+            {/* ── KIDS ── */}
             {state.evolutionStage === 'KIDS' && (
               <>
-                <div className="absolute inset-0 bg-gradient-to-b from-sky-100/35 to-green-200/40" />
-                {/* Gramado pixelado no rodapé */}
-                <div className="absolute bottom-0 inset-x-0 h-14 bg-green-500/30 border-t-2 border-green-600/25" />
-                <div className="absolute bottom-12 inset-x-0 flex justify-around opacity-[0.3]">
-                  {[...Array(12)].map((_, i) => (
-                    <div key={`grass-${i}`} className="w-1.5 bg-green-600 rounded-t-full" style={{ height: `${10 + Math.random() * 14}px` }} />
-                  ))}
-                </div>
-                {/* Árvore estilizada */}
-                <div className="absolute bottom-12 right-6 opacity-[0.3]">
-                  <div className="w-4 h-14 bg-amber-700 mx-auto" />
-                  <div className="w-18 h-16 bg-green-500 rounded-full -mt-5 mx-auto" />
-                  <div className="w-14 h-12 bg-green-600 rounded-full -mt-9 mx-auto ml-1" />
-                </div>
-                {/* Borboletas voando */}
-                {[...Array(3)].map((_, i) => (
-                  <motion.div
-                    key={`bfly-${i}`}
-                    className="absolute text-base opacity-[0.4]"
-                    style={{ top: `${20 + i * 20}%` }}
-                    animate={{ x: [0, 120, 60, 200, 0], y: [0, -30, 10, -20, 0] }}
-                    transition={{ duration: 12 + i * 3, repeat: Infinity, ease: "easeInOut", delay: i * 2 }}
-                  >
-                    🦋
-                  </motion.div>
-                ))}
-                {/* Sol no canto */}
-                <div className="absolute top-3 right-4 w-12 h-12 bg-yellow-300/35 rounded-full blur-sm" />
+                {/* Variante 0: Playground (Original) */}
+                {(state.bgVariant === 0 || !state.bgVariant) && (
+                  <>
+                    <div className="absolute inset-0 bg-gradient-to-b from-sky-100/35 to-green-200/40" />
+                    <div className="absolute bottom-0 inset-x-0 h-14 bg-green-500/30 border-t-2 border-green-600/25" />
+                    <div className="absolute bottom-12 inset-x-0 flex justify-around opacity-[0.3]">
+                      {[...Array(12)].map((_, i) => (
+                        <div key={`grass-${i}`} className="w-1.5 bg-green-600 rounded-t-full" style={{ height: `${10 + Math.random() * 14}px` }} />
+                      ))}
+                    </div>
+                    {[...Array(3)].map((_, i) => (
+                      <motion.div
+                        key={`bfly-${i}`}
+                        className="absolute text-base opacity-[0.4]"
+                        style={{ top: `${20 + i * 20}%` }}
+                        animate={{ x: [0, 120, 60, 200, 0], y: [0, -30, 10, -20, 0] }}
+                        transition={{ duration: 12 + i * 3, repeat: Infinity, ease: "easeInOut", delay: i * 2 }}
+                      >
+                        🦋
+                      </motion.div>
+                    ))}
+                  </>
+                )}
+                {/* Variante 1: Praia */}
+                {state.bgVariant === 1 && (
+                  <>
+                    <div className="absolute inset-0 bg-gradient-to-b from-sky-300/30 to-yellow-200/40" />
+                    <motion.div 
+                      className="absolute bottom-0 inset-x-0 h-20 bg-blue-400/30 border-t-4 border-white/20"
+                      animate={{ y: [0, 5, 0] }}
+                      transition={{ duration: 3, repeat: Infinity }}
+                    />
+                    <div className="absolute bottom-20 left-10 text-4xl opacity-[0.3]">🏖️</div>
+                    <motion.div 
+                      className="absolute bottom-4 right-10 text-2xl opacity-[0.4]"
+                      animate={{ x: [0, 20, 0] }}
+                      transition={{ duration: 5, repeat: Infinity }}
+                    >
+                      🦀
+                    </motion.div>
+                  </>
+                )}
+                {/* Variante 2: Floresta */}
+                {state.bgVariant === 2 && (
+                  <>
+                    <div className="absolute inset-0 bg-gradient-to-b from-green-900/20 to-green-600/30" />
+                    {[...Array(6)].map((_, i) => (
+                      <div 
+                        key={`forest-tree-${i}`} 
+                        className="absolute bottom-0 bg-green-800/20 w-8" 
+                        style={{ height: `${40 + Math.random() * 60}%`, left: `${i * 20}%` }}
+                      />
+                    ))}
+                    <div className="absolute bottom-5 left-1/4 text-3xl opacity-[0.3]">🍄</div>
+                    <motion.div 
+                      className="absolute top-10 right-10 text-3xl opacity-[0.2]"
+                      animate={{ rotate: [0, 360] }}
+                      transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
+                    >
+                      🦉
+                    </motion.div>
+                  </>
+                )}
               </>
             )}
 
-            {/* ── TEEN: Quarto de Adolescente ── */}
+            {/* ── TEEN ── */}
             {state.evolutionStage === 'TEEN' && (
               <>
-                <div className="absolute inset-0 bg-gradient-to-b from-slate-300/25 to-blue-200/30" />
-                {/* Pôsters na "parede" */}
-                <div className="absolute top-6 left-3 w-10 h-12 bg-red-400/30 border-2 border-red-500/25 rounded-sm" />
-                <div className="absolute top-4 left-16 w-12 h-9 bg-blue-400/30 border-2 border-blue-500/25 rounded-sm" />
-                <div className="absolute top-8 right-4 w-11 h-13 bg-purple-400/30 border-2 border-purple-500/25 rounded-sm" />
-                {/* Faixa de LED neon na borda superior */}
-                <motion.div
-                  className="absolute top-0 inset-x-0 h-1.5"
-                  animate={{ opacity: [0.25, 0.5, 0.25] }}
-                  transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
-                >
-                  <div className="w-full h-full bg-gradient-to-r from-cyan-400 via-purple-500 to-pink-400" />
-                </motion.div>
-                {/* Fones pendurados */}
-                <div className="absolute top-20 right-3 opacity-[0.3]">
-                  <div className="w-6 h-1.5 bg-gray-700 rounded-full" />
-                  <div className="w-4 h-5 bg-gray-600 rounded-b-lg ml-0.5" />
-                </div>
+                {/* Variante 0: Quarto Geek (Original) */}
+                {(state.bgVariant === 0 || !state.bgVariant) && (
+                  <>
+                    <div className="absolute inset-0 bg-gradient-to-b from-slate-300/25 to-blue-200/30" />
+                    <div className="absolute top-6 left-3 w-10 h-12 bg-red-400/30 border-2 border-red-500/25 rounded-sm" />
+                    <div className="absolute top-4 left-16 w-12 h-9 bg-blue-400/30 border-2 border-blue-500/25 rounded-sm" />
+                    <motion.div
+                      className="absolute top-0 inset-x-0 h-1.5 opacity-[0.3]"
+                      style={{ background: 'linear-gradient(90deg, #ff00ff, #00ffff)' }}
+                      animate={{ opacity: [0.2, 0.4, 0.2] }}
+                      transition={{ duration: 2, repeat: Infinity }}
+                    />
+                    <div className="absolute bottom-8 left-4 text-3xl opacity-[0.3]">🎧</div>
+                  </>
+                )}
+                {/* Variante 1: Garagem de Ensaio */}
+                {state.bgVariant === 1 && (
+                  <>
+                    <div className="absolute inset-0 bg-[#3d2b1f]/30" />
+                    <div className="absolute inset-x-0 bottom-0 h-20 bg-gray-900/40 border-t border-white/5" />
+                    <div className="absolute top-10 left-1/4 -rotate-12 bg-black/10 px-4 py-2 border-2 border-dashed border-red-500/20">
+                      <span className="text-xl font-black text-red-500/30">PIPO</span>
+                    </div>
+                    <div className="absolute bottom-6 right-8 text-4xl opacity-[0.25]">🎸</div>
+                    <div className="absolute bottom-5 left-8 w-12 h-16 bg-gray-800/40 border-2 border-black/20 rounded-sm" />
+                  </>
+                )}
+                {/* Variante 2: Skate Park Noturno */}
+                {state.bgVariant === 2 && (
+                  <>
+                    <div className="absolute inset-0 bg-gradient-to-b from-indigo-950/40 to-[#121212]/50" />
+                    <div className="absolute bottom-0 right-0 w-32 h-20 bg-gray-700/30 skew-x-[-20deg] border-l-4 border-white/10" />
+                    <motion.div 
+                      className="absolute top-4 right-10 w-4 h-4 bg-yellow-100/40 rounded-full blur-md"
+                      animate={{ opacity: [0.3, 0.6, 0.3] }}
+                      transition={{ duration: 0.5, repeat: Infinity }}
+                    />
+                    <div className="absolute bottom-8 left-10 text-4xl opacity-[0.3] rotate-[-20deg]">🛹</div>
+                  </>
+                )}
               </>
             )}
 
-            {/* ── MASTER TEEN: Setup Gamer ── */}
+            {/* ── MASTER TEEN ── */}
             {state.evolutionStage === 'MASTER_TEEN' && (
               <>
-                <div className="absolute inset-0 bg-gradient-to-b from-purple-900/25 to-blue-900/30" />
-                {/* Luzes RGB nas bordas */}
-                <motion.div
-                  className="absolute inset-0 rounded-2xl"
-                  style={{ boxShadow: 'inset 0 0 40px rgba(139,92,246,0.25), inset 0 0 80px rgba(59,130,246,0.12)' }}
-                  animate={{ opacity: [0.6, 1, 0.6] }}
-                  transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
-                />
-                {/* Partículas de pixels roxos flutuantes */}
-                {[...Array(10)].map((_, i) => (
-                  <motion.div
-                    key={`pixel-${i}`}
-                    className="absolute w-1.5 h-1.5 bg-purple-400 rounded-sm"
-                    style={{ left: `${Math.random() * 100}%`, top: `${Math.random() * 100}%` }}
-                    animate={{ y: [0, -40, 0], opacity: [0.15, 0.4, 0.15] }}
-                    transition={{ duration: 4 + Math.random() * 4, repeat: Infinity, delay: i * 0.5 }}
-                  />
-                ))}
-                {/* Monitor/tela ao fundo */}
-                <div className="absolute top-4 left-1/2 -translate-x-1/2 w-28 h-16 border-2 border-gray-600/30 rounded-sm bg-gray-900/15">
-                  <motion.div
-                    className="w-full h-full bg-gradient-to-br from-blue-500/15 to-purple-500/15"
-                    animate={{ opacity: [0.2, 0.4, 0.2] }}
-                    transition={{ duration: 3, repeat: Infinity }}
-                  />
-                </div>
-                {/* Controle no chão */}
-                <div className="absolute bottom-6 left-8 opacity-[0.3] text-xl">🎮</div>
+                {/* Variante 0: Setup RGB (Original) */}
+                {(state.bgVariant === 0 || !state.bgVariant) && (
+                  <>
+                    <div className="absolute inset-0 bg-gradient-to-b from-purple-900/25 to-blue-900/30" />
+                    <motion.div
+                      className="absolute inset-0 rounded-2xl"
+                      style={{ boxShadow: 'inset 0 0 40px rgba(139,92,246,0.25), inset 0 0 80px rgba(59,130,246,0.12)' }}
+                      animate={{ opacity: [0.6, 1, 0.6] }}
+                      transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
+                    />
+                    <div className="absolute top-4 left-1/2 -translate-x-1/2 w-28 h-16 border-2 border-gray-600/30 rounded-sm bg-gray-900/15">
+                      <motion.div
+                        className="w-full h-full bg-gradient-to-br from-blue-500/15 to-purple-500/15"
+                        animate={{ opacity: [0.2, 0.4, 0.2] }}
+                        transition={{ duration: 3, repeat: Infinity }}
+                      />
+                    </div>
+                  </>
+                )}
+                {/* Variante 1: Arena E-Sports */}
+                {state.bgVariant === 1 && (
+                  <>
+                    <div className="absolute inset-0 bg-blue-950/20" />
+                    <motion.div 
+                      className="absolute top-0 inset-x-0 h-32 bg-white/5"
+                      animate={{ opacity: [0, 0.2, 0], x: [-100, 100] }}
+                      transition={{ duration: 2, repeat: Infinity }}
+                    />
+                    <div className="absolute bottom-10 left-1/4 text-4xl opacity-[0.2]">🏆</div>
+                    <div className="absolute bottom-10 right-1/4 text-4xl opacity-[0.2]">🥇</div>
+                  </>
+                )}
+                {/* Variante 2: Cyberpunk City */}
+                {state.bgVariant === 2 && (
+                  <>
+                    <div className="absolute inset-0 bg-[#050510]/40" />
+                    <div className="absolute top-5 left-5 w-20 h-10 border border-pink-500/20 flex items-center justify-center">
+                      <motion.span 
+                        className="text-[6px] text-pink-400 opacity-[0.3]"
+                        animate={{ opacity: [0.1, 0.5, 0.1] }}
+                        transition={{ duration: 1, repeat: Infinity }}
+                      >
+                        NEON CITY
+                      </motion.span>
+                    </div>
+                    <div className="absolute bottom-10 left-10 text-4xl opacity-[0.2]">🌃</div>
+                  </>
+                )}
               </>
             )}
 
-            {/* ── YOUNG ADULT: Escritório / Biblioteca ── */}
+            {/* ── YOUNG ADULT ── */}
             {state.evolutionStage === 'YOUNG_ADULT' && (
               <>
-                <div className="absolute inset-0 bg-gradient-to-b from-amber-50/30 to-orange-100/30" />
-                {/* Estante de livros na lateral */}
-                <div className="absolute top-8 left-2 flex flex-col gap-0.5 opacity-[0.35]">
-                  {[['bg-red-400', 'h-6'], ['bg-blue-400', 'h-5'], ['bg-green-500', 'h-7'], ['bg-yellow-500', 'h-5'], ['bg-purple-400', 'h-6']].map(([color, height], i) => (
-                    <div key={`book-${i}`} className={`w-4 ${height} ${color} rounded-r-sm border-r-2 border-black/15`} />
-                  ))}
-                </div>
-                <div className="absolute top-8 left-8 flex flex-col gap-0.5 opacity-[0.3]">
-                  {[['bg-orange-400', 'h-7'], ['bg-teal-400', 'h-5'], ['bg-pink-400', 'h-6']].map(([color, height], i) => (
-                    <div key={`book2-${i}`} className={`w-4 ${height} ${color} rounded-r-sm border-r-2 border-black/15`} />
-                  ))}
-                </div>
-                {/* Xícara de café */}
-                <div className="absolute bottom-8 right-6 opacity-[0.35] text-lg">☕</div>
-                {/* Luminária */}
-                <div className="absolute top-10 right-4 opacity-[0.3]">
-                  <div className="w-1.5 h-12 bg-gray-600 mx-auto" />
-                  <div className="w-10 h-5 bg-yellow-300/70 rounded-t-full -mt-1" />
-                  <motion.div
-                    className="absolute top-8 -left-1 w-12 h-20 bg-yellow-200/25 rounded-b-full blur-sm"
-                    animate={{ opacity: [0.2, 0.35, 0.2] }}
-                    transition={{ duration: 5, repeat: Infinity }}
-                  />
-                </div>
-                {/* Post-its */}
-                <div className="absolute top-6 right-18 w-5 h-5 bg-yellow-300/35 border border-yellow-500/25 rotate-3" />
-                <div className="absolute top-11 right-16 w-5 h-5 bg-pink-300/35 border border-pink-500/25 -rotate-6" />
+                {/* Variante 0: Escritório / Biblioteca (Original) */}
+                {(state.bgVariant === 0 || !state.bgVariant) && (
+                  <>
+                    <div className="absolute inset-0 bg-gradient-to-b from-amber-50/30 to-orange-100/30" />
+                    <div className="absolute top-8 left-2 flex flex-col gap-0.5 opacity-[0.35]">
+                      {[['bg-red-400', 'h-6'], ['bg-blue-400', 'h-5'], ['bg-green-500', 'h-7'], ['bg-yellow-500', 'h-5'], ['bg-purple-400', 'h-6']].map(([color, height], i) => (
+                        <div key={`book-${i}`} className={`w-4 ${height} ${color} rounded-r-sm border-r-2 border-black/15`} />
+                      ))}
+                    </div>
+                    <div className="absolute bottom-8 right-6 opacity-[0.35] text-lg">☕</div>
+                  </>
+                )}
+                {/* Variante 1: Cafeteria Co-working */}
+                {state.bgVariant === 1 && (
+                  <>
+                    <div className="absolute inset-0 bg-orange-200/20" />
+                    <div className="absolute bottom-0 inset-x-0 h-16 bg-amber-900/10 border-t border-amber-900/20" />
+                    <div className="absolute top-10 right-10 text-4xl opacity-[0.2]">☕</div>
+                    <div className="absolute bottom-20 left-10 text-4xl opacity-[0.2]">🪴</div>
+                  </>
+                )}
+                {/* Variante 2: Studio Apartment */}
+                {state.bgVariant === 2 && (
+                  <>
+                    <div className="absolute inset-0 bg-slate-200/30" />
+                    <div className="absolute top-5 left-5 w-24 h-16 bg-white/20 border border-black/10 rounded-sm" />
+                    <div className="absolute bottom-10 right-10 text-4xl opacity-[0.2]">🎸</div>
+                    <div className="absolute top-10 right-10 text-3xl opacity-[0.15]">🏙️</div>
+                  </>
+                )}
               </>
             )}
 
-            {/* ── ADULT: Loft Elegante ── */}
+            {/* ── ADULT ── */}
             {state.evolutionStage === 'ADULT' && (
               <>
-                <div className="absolute inset-0 bg-gradient-to-b from-gray-800/20 to-gray-600/25" />
-                {/* Janela panorâmica com skyline */}
-                <div className="absolute top-4 left-1/2 -translate-x-1/2 w-44 h-22 border-2 border-gray-500/25 rounded-sm bg-gradient-to-b from-indigo-900/20 to-orange-300/15 overflow-hidden">
-                  {/* Prédios do skyline */}
-                  <div className="absolute bottom-0 inset-x-0 flex items-end justify-around px-1 opacity-[0.4]">
-                    <div className="w-3 h-8 bg-gray-700" />
-                    <div className="w-4 h-12 bg-gray-600" />
-                    <div className="w-2 h-6 bg-gray-700" />
-                    <div className="w-5 h-14 bg-gray-500" />
-                    <div className="w-3 h-10 bg-gray-600" />
-                    <div className="w-4 h-7 bg-gray-700" />
-                    <div className="w-2 h-9 bg-gray-600" />
-                  </div>
-                </div>
-                {/* Chão com textura de madeira */}
-                <div className="absolute bottom-0 inset-x-0 h-10 bg-gradient-to-b from-amber-800/20 to-amber-900/30 border-t-2 border-amber-700/20" />
-                {/* Planta moderna */}
-                <div className="absolute bottom-10 left-4 opacity-[0.3]">
-                  <div className="w-5 h-6 bg-gray-500 rounded-sm mx-auto" />
-                  <div className="w-2.5 h-8 bg-green-700 mx-auto -mt-1" />
-                  <div className="w-8 h-6 bg-green-500 rounded-full -mt-4 mx-auto" />
-                </div>
-                {/* Relógio de parede */}
-                <div className="absolute top-8 right-6 w-8 h-8 border-2 border-gray-500/30 rounded-full bg-white/10 flex items-center justify-center opacity-[0.35]">
-                  <div className="w-0.5 h-2.5 bg-gray-600 absolute origin-bottom -rotate-45" />
-                  <div className="w-0.5 h-2 bg-gray-600 absolute origin-bottom rotate-90" />
-                </div>
+                {/* Variante 0: Loft Elegante (Original) */}
+                {(state.bgVariant === 0 || !state.bgVariant) && (
+                  <>
+                    <div className="absolute inset-0 bg-gradient-to-b from-gray-800/20 to-gray-600/25" />
+                    <div className="absolute top-4 left-1/2 -translate-x-1/2 w-44 h-22 border-2 border-gray-500/25 rounded-sm bg-gradient-to-b from-indigo-900/20 to-orange-300/15 overflow-hidden">
+                      <div className="absolute bottom-0 inset-x-0 flex items-end justify-around px-1 opacity-[0.4]">
+                        <div className="w-3 h-8 bg-gray-700" />
+                        <div className="w-4 h-12 bg-gray-600" />
+                        <div className="w-5 h-14 bg-gray-500" />
+                      </div>
+                    </div>
+                    <div className="absolute bottom-0 inset-x-0 h-10 bg-gradient-to-b from-amber-800/20 to-amber-900/30 border-t-2 border-amber-700/20" />
+                  </>
+                )}
+                {/* Variante 1: Jardim Zen */}
+                {state.bgVariant === 1 && (
+                  <>
+                    <div className="absolute inset-0 bg-gradient-to-b from-emerald-100/20 to-stone-200/30" />
+                    <div className="absolute bottom-0 inset-x-0 h-12 bg-stone-300/40" />
+                    <div className="absolute bottom-12 left-10 text-4xl opacity-[0.2]">🎋</div>
+                    <div className="absolute bottom-10 right-10 text-4xl opacity-[0.2]">🧘</div>
+                    <motion.div 
+                      className="absolute bottom-5 left-1/2 w-20 h-10 bg-cyan-400/10 rounded-full blur-md"
+                      animate={{ scale: [1, 1.2, 1] }}
+                      transition={{ duration: 4, repeat: Infinity }}
+                    />
+                  </>
+                )}
+                {/* Variante 2: Escritório Executivo */}
+                {state.bgVariant === 2 && (
+                  <>
+                    <div className="absolute inset-0 bg-slate-800/20" />
+                    <div className="absolute top-10 left-10 text-5xl opacity-[0.1]">🗺️</div>
+                    <div className="absolute bottom-10 right-10 text-4xl opacity-[0.2]">💼</div>
+                    <div className="absolute bottom-0 inset-x-0 h-2 bg-blue-900/10" />
+                  </>
+                )}
               </>
             )}
 
-            {/* ── LEGENDARY: Templo Dourado / Salão do Trono ── */}
+            {/* ── LEGENDARY ── */}
             {state.evolutionStage === 'LEGENDARY' && (
               <>
-                <div className="absolute inset-0 bg-gradient-to-b from-gray-900/25 via-amber-900/20 to-yellow-600/30" />
-                {/* Glow dourado nas bordas */}
-                <motion.div
-                  className="absolute inset-0 rounded-2xl"
-                  style={{ boxShadow: 'inset 0 0 50px rgba(255,215,0,0.2), inset 0 0 100px rgba(255,215,0,0.1)' }}
-                  animate={{ opacity: [0.5, 1, 0.5] }}
-                  transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
-                />
-                {/* Pilares dourados nas laterais */}
-                <div className="absolute left-1 top-4 bottom-4 w-4 bg-gradient-to-b from-yellow-600/30 via-yellow-400/25 to-yellow-600/30 rounded-full" />
-                <div className="absolute right-1 top-4 bottom-4 w-4 bg-gradient-to-b from-yellow-600/30 via-yellow-400/25 to-yellow-600/30 rounded-full" />
-                {/* Tapete vermelho */}
-                <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-28 h-full bg-gradient-to-t from-red-700/25 via-red-600/15 to-transparent" />
-                {/* Partículas douradas flutuantes */}
-                {[...Array(12)].map((_, i) => (
-                  <motion.div
-                    key={`gold-${i}`}
-                    className="absolute w-1.5 h-1.5 bg-yellow-400 rounded-full"
-                    style={{ left: `${Math.random() * 100}%`, top: `${Math.random() * 100}%` }}
-                    animate={{ y: [0, -30, 0], opacity: [0.15, 0.4, 0.15], scale: [0.8, 1.4, 0.8] }}
-                    transition={{ duration: 3 + Math.random() * 3, repeat: Infinity, delay: i * 0.4 }}
-                  />
-                ))}
+                {/* Variante 0: Templo Dourado (Original) */}
+                {(state.bgVariant === 0 || !state.bgVariant) && (
+                  <>
+                    <div className="absolute inset-0 bg-gradient-to-b from-gray-900/25 via-amber-900/20 to-yellow-600/30" />
+                    <motion.div
+                      className="absolute inset-0 rounded-2xl"
+                      style={{ boxShadow: 'inset 0 0 50px rgba(255,215,0,0.2), inset 0 0 100px rgba(255,215,0,0.1)' }}
+                      animate={{ opacity: [0.5, 1, 0.5] }}
+                      transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+                    />
+                    <div className="absolute left-1 top-4 bottom-4 w-4 bg-gradient-to-b from-yellow-600/30 via-yellow-400/25 to-yellow-600/30 rounded-full" />
+                    <div className="absolute right-1 top-4 bottom-4 w-4 bg-gradient-to-b from-yellow-600/30 via-yellow-400/25 to-yellow-600/30 rounded-full" />
+                    <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-28 h-full bg-gradient-to-t from-red-700/25 via-red-600/15 to-transparent" />
+                  </>
+                )}
+                {/* Variante 1: Olimpo */}
+                {state.bgVariant === 1 && (
+                  <>
+                    <div className="absolute inset-0 bg-gradient-to-b from-cyan-200/30 to-white/40" />
+                    {[...Array(5)].map((_, i) => (
+                      <motion.div
+                        key={`gold-cloud-${i}`}
+                        className="absolute bg-yellow-200/30 w-32 h-12 rounded-full blur-md"
+                        style={{ top: `${15 + i * 18}%` }}
+                        animate={{ x: [-100, 500] }}
+                        transition={{ duration: 40 + i * 10, repeat: Infinity, ease: "linear" }}
+                      />
+                    ))}
+                    <div className="absolute top-10 right-10 text-5xl opacity-[0.2]">👼</div>
+                  </>
+                )}
+                {/* Variante 2: Palácio de Cristal */}
+                {state.bgVariant === 2 && (
+                  <>
+                    <div className="absolute inset-0 bg-gradient-to-br from-purple-300/20 via-cyan-300/20 to-pink-300/20" />
+                    <motion.div 
+                      className="absolute inset-0"
+                      style={{ background: 'linear-gradient(45deg, transparent 45%, rgba(255,255,255,0.4) 50%, transparent 55%)', backgroundSize: '200% 200%' }}
+                      animate={{ backgroundPosition: ['200% 200%', '-200% -200%'] }}
+                      transition={{ duration: 5, repeat: Infinity, ease: "linear" }}
+                    />
+                    <div className="absolute top-10 left-10 text-4xl opacity-[0.2]">💎</div>
+                    <div className="absolute bottom-10 right-10 text-4xl opacity-[0.2]">✨</div>
+                  </>
+                )}
               </>
             )}
           </div>
@@ -1901,9 +2181,6 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
             <span className="text-lg drop-shadow-[1px_1px_0px_rgba(0,0,0,0.1)]">
               {state.isSleeping ? '☀️' : '🌙'}
             </span>
-            <span className="absolute top-10 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap text-[5px] font-bold uppercase bg-white border border-black px-1 pointer-events-none shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]">
-              {state.isSleeping ? 'Acordar' : 'Dormir'}
-            </span>
           </motion.button>
 
           {/* Skin Toggle */}
@@ -1923,8 +2200,20 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
             <span className="text-lg drop-shadow-[1px_1px_0px_rgba(0,0,0,0.1)]">
               🎨
             </span>
-            <span className="absolute top-10 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap text-[5px] font-bold uppercase bg-white border border-black px-1 pointer-events-none shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]">
-              Trocar Cor
+          </motion.button>
+
+          {/* Background Toggle */}
+          <motion.button
+            className="absolute top-[88px] right-2 z-[40] w-8 h-8 flex items-center justify-center bg-white/10 hover:bg-white/30 border-2 border-black/5 rounded-full backdrop-blur-[2px] transition-colors shadow-sm group"
+            onClick={() => {
+              setState(prev => ({ ...prev, bgVariant: ((prev.bgVariant || 0) + 1) % 3 }));
+              setMessage("Mudando o ambiente...");
+            }}
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.9 }}
+          >
+            <span className="text-lg drop-shadow-[1px_1px_0px_rgba(0,0,0,0.1)]">
+              🖼️
             </span>
           </motion.button>
 
@@ -2333,6 +2622,7 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
                   ...prev,
                   englishExp: newExp,
                   englishLevel: newLevel,
+                  lifetimeXP: prev.lifetimeXP + xpGained,
                   happiness: Math.min(100, prev.happiness + 20),
                   energy: Math.max(0, prev.energy - 10),
                   evolutionStage: (newLevel >= 15 ? 'LEGENDARY' : newLevel >= 10 ? 'ADULT' : newLevel >= 5 ? 'TEEN' : 'BABY') as EvolutionStage
@@ -2361,6 +2651,7 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
                   ...prev,
                   englishExp: newExp,
                   englishLevel: newLevel,
+                  lifetimeXP: prev.lifetimeXP + xpGained,
                   happiness: Math.min(100, prev.happiness + 40),
                   energy: Math.max(0, prev.energy - 20),
                   evolutionStage: (newLevel >= 15 ? 'LEGENDARY' : newLevel >= 10 ? 'ADULT' : newLevel >= 5 ? 'TEEN' : 'BABY') as EvolutionStage

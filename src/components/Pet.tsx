@@ -18,7 +18,6 @@ interface PetProps {
 }
 
 export default function Pet({ state, isActionActive, onPet, onRemoveItem, isLevelUp, isEvolving, foodType, weather, isSick, message }: PetProps) {
-  const [removingItemId, setRemovingItemId] = React.useState<string | null>(null);
 
   const isHappy = state.happiness > 60 && state.hunger > 40;
   const isSad = state.happiness < 30 || state.hunger < 20;
@@ -148,6 +147,7 @@ export default function Pet({ state, isActionActive, onPet, onRemoveItem, isLeve
       <AnimatePresence>
         {message && !state.isSleeping && (
           <motion.div
+            key={message}
             initial={{ opacity: 0, scale: 0.5, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.5 }}
@@ -228,7 +228,7 @@ export default function Pet({ state, isActionActive, onPet, onRemoveItem, isLeve
           rotate: [0, 5, -5, 5, 0],
           y: [0, -10, 0],
           filter: ["brightness(1)", "brightness(1.2)", "brightness(1)"],
-          transition: { duration: 0.3, repeat: 1, ease: "easeInOut" }
+          transition: { duration: 1.5, repeat: 1, ease: "easeInOut" }
         } : isActionActive === 'CLEAN' ? {
           scale: [1, 1.05, 1],
           rotate: [0, 2, -2, 0],
@@ -247,7 +247,7 @@ export default function Pet({ state, isActionActive, onPet, onRemoveItem, isLeve
           isActionActive === 'PLAY' ? { duration: 0.5, repeat: Infinity, ease: "easeInOut" } :
           state.isSleeping ? { duration: 6, repeat: Infinity, times: [0, 0.5, 1], ease: "easeInOut" } :
           isEvolving ? { duration: 2, ease: "easeInOut" } :
-          { duration: 4, repeat: Infinity, times: [0, 0.4, 1], ease: "easeInOut" }
+          { duration: 10, repeat: Infinity, times: [0, 0.4, 1], ease: "easeInOut" }
         }
       >
         {/* Ears - Pixelated (Now inside body for sync) */}
@@ -293,30 +293,18 @@ export default function Pet({ state, isActionActive, onPet, onRemoveItem, isLeve
           <div 
             key={item.instanceId} 
             className={cn("absolute cursor-pointer pointer-events-auto transition-transform hover:brightness-110 active:scale-95 group", getEquipmentStyle(item.id))}
-            onClick={(e) => {
-               e.stopPropagation();
-               setRemovingItemId(removingItemId === item.instanceId ? null : item.instanceId);
-            }}
           >
             {item.icon}
             
-            <AnimatePresence>
-               {removingItemId === item.instanceId && (
-                  <motion.button
-                    initial={{ scale: 0, opacity: 0 }}
-                    animate={{ scale: 1, opacity: 1 }}
-                    exit={{ scale: 0, opacity: 0 }}
-                    onClick={(e) => {
-                       e.stopPropagation();
-                       onRemoveItem?.(item.instanceId);
-                       setRemovingItemId(null);
-                     }}
-                    className="absolute -top-4 -right-4 w-6 h-6 bg-red-500 border-2 border-white rounded-full flex items-center justify-center text-[10px] text-white font-bold shadow-lg z-50 hover:bg-red-600"
-                  >
-                    X
-                  </motion.button>
-               )}
-            </AnimatePresence>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onRemoveItem?.(item.instanceId);
+              }}
+              className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 border-2 border-white rounded-full flex items-center justify-center text-[10px] text-white font-bold shadow-lg opacity-0 group-hover:opacity-100 transition-opacity z-50 hover:bg-red-600"
+            >
+              X
+            </button>
           </div>
         ))}
 
@@ -533,7 +521,43 @@ export default function Pet({ state, isActionActive, onPet, onRemoveItem, isLeve
               transition={{ duration: 1.2, times: [0, 0.5, 0.8, 1], ease: "easeIn" }}
               className="absolute -top-16 text-5xl z-30"
             >
-              {foodType === 'PASTA' ? '🍝' : foodType === 'PIZZA' ? '🍕' : foodType === 'VEGGIES' ? '🥗' : '🍎'}
+              { ({
+                // Baby
+                MILK: '🍼',
+                PORRIDGE_BANANA: '🍌',
+                CARROT_MASH: '🥕',
+                MILK_COOKIE: '🍪',
+                // Kids
+                APPLE: '🍎',
+                NATURAL_JUICE: '🧃',
+                KIDS_PASTA: '🍝',
+                ICE_CREAM: '🍦',
+                // Teen
+                PIZZA: '🍕',
+                BURGER: '🍔',
+                GRAPE_JUICE: '🍇',
+                ACAI_BOWL: '🫐',
+                // Master Teen
+                NATURAL_SANDWICH: '🥪',
+                SNACKS: '🍟',
+                ENERGY_DRINK: '⚡',
+                CHICKEN_SALAD: '🥗',
+                // Young Adult
+                CARBONARA: '🍝',
+                COFFEE: '☕',
+                POKE_BOWL: '🍱',
+                CAESAR_SALAD: '🥗',
+                // Adult
+                STEAK: '🥩',
+                QUINOA_SALAD: '🥗',
+                CHAMOMILE_TEA: '🍵',
+                VEGGIE_SOUP: '🍜',
+                // Legendary
+                NECTAR: '✨',
+                GOLDEN_APPLE: '🌟',
+                ELVEN_BREAD: '🍞',
+                SPRING_WATER: '💧',
+              } as Record<string, string>)[foodType ?? ''] ?? '🍎'}
             </motion.div>
             {/* Bite particles and sparkles */}
             {[...Array(12)].map((_, i) => (

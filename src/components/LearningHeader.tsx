@@ -38,7 +38,7 @@ export function LearningHeader({
           <div className="flex flex-col">
             <h2 className="text-[10px] font-bold uppercase tracking-tight hidden sm:block">{title}</h2>
             {isReviewMode && (
-              <span className="text-[7px] text-red-500 font-bold uppercase animate-pulse">Prática de Erros</span>
+              <span className="text-[7px] text-white bg-red-500 font-bold uppercase px-1.5 py-0.5 rounded-sm">🔄 Reforço</span>
             )}
           </div>
         )}

@@ -43,7 +43,7 @@ export function RankingModal({ rankings, session, onClose }: RankingModalProps) 
                 </span>
                 <div className="flex-1">
                   <p className="font-bold uppercase">{r.name}</p>
-                  <p className="text-gray-500">Nível {r.english_level} • {r.english_points} XP • 🔥{r.streak_days || 0}</p>
+                  <p className="text-gray-500">Nível {r.english_level} • {r.lifetime_xp || 0} XP • 🔥{r.streak_days || 0}</p>
                   
                   {/* Badges Display */}
                   <div className="flex gap-1 mt-1">

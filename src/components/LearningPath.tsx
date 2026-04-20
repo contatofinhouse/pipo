@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
 import { ChevronLeft, Star, Lock, Play } from 'lucide-react';
 import { cn } from '../lib/utils';
@@ -30,8 +30,18 @@ interface LearningPathProps {
 }
 
 export function LearningPath({ units, currentUnitId, onBack, onStartLesson, stats = { level: 1, exp: 0, streak: 0 } }: LearningPathProps) {
+  const activeLessonRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    // Scroll to the active lesson when the component mounts
+    if (activeLessonRef.current) {
+      setTimeout(() => {
+        activeLessonRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 100);
+    }
+  }, [units]);
+
   // Mock data positioning logic for the winding path
-  // We'll alternate nodes left and right
   const getPositionClass = (index: number) => {
     const positions = [
       'translate-x-0',        // Center
@@ -67,58 +77,62 @@ export function LearningPath({ units, currentUnitId, onBack, onStartLesson, stat
               </div>
 
               <div className="space-y-16 py-8 flex flex-col items-center w-full">
-                {unit.lessons.map((lesson, lIdx) => (
-                  <motion.div
-                    key={lesson.id}
-                    className={cn(
-                      "relative group",
-                      getPositionClass(lIdx)
-                    )}
-                    initial={{ opacity: 0, y: 20 }}
-                    whileInView={{ opacity: 1, y: 0 }}
-                    viewport={{ once: true }}
-                  >
-                    {/* Lesson Node */}
-                    <button
-                      disabled={lesson.status === 'locked'}
-                      onClick={() => onStartLesson(lesson.id)}
+                {unit.lessons.map((lesson, lIdx) => {
+                  const isFirstUnlocked = lesson.status === 'unlocked';
+                  return (
+                    <motion.div
+                      key={lesson.id}
+                      ref={isFirstUnlocked ? activeLessonRef : null}
                       className={cn(
-                        "w-16 h-16 rounded-full border-4 border-black flex items-center justify-center transition-all relative z-10",
-                        lesson.status === 'locked' 
-                          ? 'bg-gray-300 cursor-not-allowed grayscale' 
-                          : 'bg-yellow-400 shadow-[0px_6px_0px_0px_rgba(0,0,0,0.2)] hover:scale-110 active:translate-y-1 active:shadow-none',
-                        lesson.status === 'completed' && 'bg-green-400'
+                        "relative group",
+                        getPositionClass(lIdx)
                       )}
+                      initial={{ opacity: 0, y: 20 }}
+                      whileInView={{ opacity: 1, y: 0 }}
+                      viewport={{ once: true }}
                     >
-                      {lesson.status === 'locked' ? (
-                        <Lock size={24} className="text-gray-500" />
-                      ) : lesson.status === 'completed' ? (
-                        <Star size={24} className="text-white fill-white" />
-                      ) : (
-                        <Play size={24} className="text-black fill-black ml-1" />
+                      {/* Lesson Node */}
+                      <button
+                        disabled={lesson.status === 'locked'}
+                        onClick={() => onStartLesson(lesson.id)}
+                        className={cn(
+                          "w-16 h-16 rounded-full border-4 border-black flex items-center justify-center transition-all relative z-10",
+                          lesson.status === 'locked' 
+                            ? 'bg-gray-300 cursor-not-allowed grayscale' 
+                            : 'bg-yellow-400 shadow-[0px_6px_0px_0px_rgba(0,0,0,0.2)] hover:scale-110 active:translate-y-1 active:shadow-none',
+                          lesson.status === 'completed' && 'bg-green-400'
+                        )}
+                      >
+                        {lesson.status === 'locked' ? (
+                          <Lock size={24} className="text-gray-500" />
+                        ) : lesson.status === 'completed' ? (
+                          <Star size={24} className="text-white fill-white" />
+                        ) : (
+                          <Play size={24} className="text-black fill-black ml-1" />
+                        )}
+
+                        {/* Mastery Indicator Circle */}
+                        {lesson.status !== 'locked' && (
+                          <div className="absolute -top-1 -right-1 w-6 h-6 bg-white border-2 border-black rounded-full flex items-center justify-center text-[8px] font-bold">
+                            {lesson.mastery}%
+                          </div>
+                        )}
+                      </button>
+
+                      {/* Tooltip Label */}
+                      <div className="absolute top-full mt-3 left-1/2 -translate-x-1/2 whitespace-nowrap">
+                         <span className="text-[8px] font-bold uppercase bg-white border border-black px-2 py-0.5 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
+                           {lesson.title}
+                         </span>
+                      </div>
+
+                      {/* Completion Ring (if unlocked) */}
+                      {lesson.status === 'unlocked' && (
+                        <div className="absolute inset-0 -m-2 border-4 border-dashed border-yellow-500/30 rounded-full animate-[spin_10s_linear_infinite] pointer-events-none" />
                       )}
-
-                      {/* Mastery Indicator Circle */}
-                      {lesson.status !== 'locked' && (
-                        <div className="absolute -top-1 -right-1 w-6 h-6 bg-white border-2 border-black rounded-full flex items-center justify-center text-[8px] font-bold">
-                          {lesson.mastery}%
-                        </div>
-                      )}
-                    </button>
-
-                    {/* Tooltip Label */}
-                    <div className="absolute top-full mt-3 left-1/2 -translate-x-1/2 whitespace-nowrap">
-                       <span className="text-[8px] font-bold uppercase bg-white border border-black px-2 py-0.5 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
-                         {lesson.title}
-                       </span>
-                    </div>
-
-                    {/* Completion Ring (if unlocked) */}
-                    {lesson.status === 'unlocked' && (
-                      <div className="absolute inset-0 -m-2 border-4 border-dashed border-yellow-500/30 rounded-full animate-[spin_10s_linear_infinite] pointer-events-none" />
-                    )}
-                  </motion.div>
-                ))}
+                    </motion.div>
+                  );
+                })}
               </div>
             </div>
           ))}

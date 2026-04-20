@@ -1,16 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, CheckCircle2, AlertCircle, Volume2, ArrowRight } from 'lucide-react';
+import { X, CheckCircle2, AlertCircle, Volume2, ArrowRight, Mic, RotateCcw } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 interface Question {
   id: string;
-  type: 'selection' | 'matching' | 'audio' | 'ordering' | 'tf';
+  type: 'selection' | 'matching' | 'audio' | 'ordering' | 'tf' | 'speaking';
   content: {
     prompt: string;
     audio_text?: string;
+    audio_url?: string;
     image?: string;
     items?: { icon: string; word: string }[];
+    sentence?: string;
   };
   options: {
     text: string;
@@ -60,6 +62,14 @@ export function ExerciseEngine({
   const [shuffledIcons, setShuffledIcons] = useState<string[]>([]);
   const [shuffledWords, setShuffledWords] = useState<string[]>([]);
 
+  // Estados específicos para Ordering
+  const [orderingWords, setOrderingWords] = useState<string[]>([]);
+  const [selectedOrderingWords, setSelectedOrderingWords] = useState<string[]>([]);
+
+  // Estados específicos para Speaking
+  const [isListening, setIsListening] = useState(false);
+  const [spokenText, setSpokenText] = useState('');
+
   const currentQuestion = sessionQuestions[currentIndex];
 
   // Detecta se estamos na fase de reforço (re-respondendo o que errou)
@@ -80,7 +90,54 @@ export function ExerciseEngine({
       setMatches({});
       setSelectedIcon(null);
     }
+
+    if (currentQuestion?.type === 'ordering' && currentQuestion.content.sentence) {
+      const words = currentQuestion.content.sentence.trim().split(/\s+/).sort(() => Math.random() - 0.5);
+      setOrderingWords(words);
+      setSelectedOrderingWords([]);
+    }
+
+    if (currentQuestion?.type === 'speaking') {
+      setSpokenText('');
+      setIsListening(false);
+    }
   }, [currentIndex, currentQuestion]);
+
+  const handleOrderingClick = (word: string, index: number) => {
+    if (isChecked) return;
+    setSelectedOrderingWords(prev => [...prev, word]);
+    setOrderingWords(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleOrderingReset = () => {
+    if (isChecked || !currentQuestion.content.sentence) return;
+    const words = currentQuestion.content.sentence.trim().split(/\s+/).sort(() => Math.random() - 0.5);
+    setOrderingWords(words);
+    setSelectedOrderingWords([]);
+  };
+
+  const handleStartSpeaking = () => {
+    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+      alert("Seu navegador não suporta reconhecimento de voz.");
+      return;
+    }
+
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'en-US';
+    recognition.interimResults = false;
+
+    recognition.onstart = () => setIsListening(true);
+    recognition.onresult = (event: any) => {
+      const result = event.results[0][0].transcript;
+      setSpokenText(result);
+      setIsListening(false);
+    };
+    recognition.onerror = () => setIsListening(false);
+    recognition.onend = () => setIsListening(false);
+
+    recognition.start();
+  };
 
   const handleMatchIcon = (icon: string) => {
     if (isChecked) return;
@@ -110,6 +167,13 @@ export function ExerciseEngine({
 
     if (currentQuestion.type === 'matching') {
       correct = currentQuestion.content.items?.every(item => matches[item.icon] === item.word) || false;
+    } else if (currentQuestion.type === 'ordering') {
+      correct = selectedOrderingWords.join(' ') === currentQuestion.content.sentence;
+    } else if (currentQuestion.type === 'speaking') {
+      // Comparação flexível (tirando pontuação e case)
+      const target = currentQuestion.content.audio_text?.toLowerCase().replace(/[.,/#!$%^&*;:{}=\-_`~()]/g,"") || "";
+      const result = spokenText.toLowerCase().replace(/[.,/#!$%^&*;:{}=\-_`~()]/g,"") || "";
+      correct = target === result || result.includes(target);
     } else {
       if (selectedOption === null) return;
       correct = currentQuestion.options[selectedOption].is_correct;
@@ -168,8 +232,23 @@ export function ExerciseEngine({
     // Simple browser-based feedback
   };
 
-  const handleSpeak = (text: string) => {
-    if ('speechSynthesis' in window) {
+  const handleSpeak = (text: string, url?: string) => {
+    if (url) {
+      const audio = new Audio(url);
+      audio.volume = 1.0;
+      audio.play().catch(e => {
+        console.error("Error playing recorded audio:", e);
+        // Fallback to TTS if URL fails
+        if (text && 'speechSynthesis' in window) {
+          const utterance = new SpeechSynthesisUtterance(text);
+          utterance.lang = 'en-US';
+          window.speechSynthesis.speak(utterance);
+        }
+      });
+      return;
+    }
+
+    if (text && 'speechSynthesis' in window) {
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = 'en-US';
       window.speechSynthesis.speak(utterance);
@@ -213,7 +292,7 @@ export function ExerciseEngine({
 
             {currentQuestion.type === 'audio' && (
               <button 
-                onClick={() => handleSpeak(currentQuestion.content.audio_text || '')}
+                onClick={() => handleSpeak(currentQuestion.content.audio_text || '', currentQuestion.content.audio_url)}
                 className="w-24 h-24 bg-blue-100 border-4 border-black rounded-xl flex items-center justify-center mb-8 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:bg-blue-200"
               >
                 <Volume2 size={40} className="text-blue-500" />
@@ -236,6 +315,68 @@ export function ExerciseEngine({
                   (Sem imagem para esta questão)
                 </div>
               )
+            )}
+
+            {currentQuestion.type === 'speaking' && (
+              <div className="flex flex-col items-center gap-6">
+                <button 
+                  onClick={handleStartSpeaking}
+                  disabled={isChecked || isListening}
+                  className={cn(
+                    "w-24 h-24 rounded-full border-4 border-black flex items-center justify-center transition-all shadow-[6px_6px_0px_0px_rgba(0,0,0,1)]",
+                    isListening ? "bg-red-400 animate-pulse" : "bg-white hover:bg-gray-50",
+                    isChecked && "opacity-50"
+                  )}
+                >
+                  <Mic size={40} className={isListening ? "text-white" : "text-black"} />
+                </button>
+                <div className="min-h-[40px] flex flex-col items-center">
+                   <p className="text-[10px] text-gray-400 uppercase font-black mb-1">Você disse:</p>
+                   <p className="text-sm font-bold uppercase tracking-wider">
+                     {spokenText || (isListening ? "Ouvindo..." : "Clique para falar")}
+                   </p>
+                </div>
+              </div>
+            )}
+
+            {currentQuestion.type === 'ordering' && (
+              <div className="w-full flex flex-col gap-8 mt-4">
+                {/* Alvos (Caixas) */}
+                <div className="flex flex-wrap justify-center gap-2 p-4 min-h-[100px] border-4 border-dashed border-gray-200 rounded-xl bg-gray-50/50">
+                  {selectedOrderingWords.map((word, idx) => (
+                    <motion.div
+                      key={idx}
+                      layoutId={`word-${idx}`}
+                      className="px-4 py-2 bg-white border-2 border-black font-bold text-xs shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]"
+                    >
+                      {word}
+                    </motion.div>
+                  ))}
+                </div>
+
+                {/* Opções (Bagunçadas) */}
+                <div className="flex flex-wrap justify-center gap-2">
+                  {orderingWords.map((word, idx) => (
+                    <button
+                      key={idx}
+                      disabled={isChecked}
+                      onClick={() => handleOrderingClick(word, idx)}
+                      className="px-4 py-2 bg-blue-50 border-2 border-black font-bold text-xs hover:bg-blue-100 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-y-0.5 active:shadow-none transition-all"
+                    >
+                      {word}
+                    </button>
+                  ))}
+                </div>
+                
+                {!isChecked && selectedOrderingWords.length > 0 && (
+                  <button 
+                    onClick={handleOrderingReset}
+                    className="flex items-center gap-2 mx-auto text-[10px] font-black uppercase text-gray-400 hover:text-black transition-colors"
+                  >
+                    <RotateCcw size={12} /> Limpar Tudo
+                  </button>
+                )}
+              </div>
             )}
 
             {currentQuestion.type === 'matching' && (
@@ -334,14 +475,24 @@ export function ExerciseEngine({
             disabled={
               currentQuestion.type === 'matching' 
                 ? Object.keys(matches).length < (currentQuestion.content.items?.length || 0)
+                : currentQuestion.type === 'ordering'
+                ? orderingWords.length > 0 || selectedOrderingWords.length === 0
+                : currentQuestion.type === 'speaking'
+                ? !spokenText
                 : selectedOption === null
             }
             className={cn(
                "px-10 py-4 font-black uppercase text-xs border-4 border-black transition-all",
-               ((currentQuestion.type === 'matching' && Object.keys(matches).length >= (currentQuestion.content.items?.length || 0)) || 
-                (currentQuestion.type !== 'matching' && selectedOption !== null))
-                ? "bg-green-400 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-1 active:translate-y-1" 
-                : "bg-gray-200 text-gray-400 cursor-not-allowed"
+               (() => {
+                 const isReady = 
+                   (currentQuestion.type === 'matching' && Object.keys(matches).length >= (currentQuestion.content.items?.length || 0)) ||
+                   (currentQuestion.type === 'ordering' && orderingWords.length === 0 && selectedOrderingWords.length > 0) ||
+                   (currentQuestion.type === 'speaking' && !!spokenText) ||
+                   (currentQuestion.type !== 'matching' && currentQuestion.type !== 'ordering' && currentQuestion.type !== 'speaking' && selectedOption !== null);
+                 return isReady
+                   ? "bg-green-400 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-1 active:translate-y-1" 
+                   : "bg-gray-200 text-gray-400 cursor-not-allowed";
+               })()
             )}
           >
             Verificar

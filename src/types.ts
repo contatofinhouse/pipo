@@ -40,6 +40,7 @@ export interface PetState {
   eggWarmth: number; // 0-100, when 100 the egg hatches
   fitness: number; // 0-100 (Exercise level)
   skinColor?: string; // Custom color for Pipo
+  bgVariant?: number; // Background variant index (0, 1, 2)
   farmPlots?: any[]; // Pipo-Farm garden plots (persisted)
 }
 
