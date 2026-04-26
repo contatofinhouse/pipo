@@ -15,9 +15,11 @@ interface PetProps {
   weather?: 'SUNNY' | 'RAINY';
   isSick?: boolean;
   message?: string;
+  impact?: { x: number; rotate: number };
+  lookAt?: { x: number; y: number } | null;
 }
 
-export default function Pet({ state, isActionActive, onPet, onRemoveItem, isLevelUp, isEvolving, foodType, weather, isSick, message }: PetProps) {
+export default function Pet({ state, isActionActive, onPet, onRemoveItem, isLevelUp, isEvolving, foodType, weather, isSick, message, impact, lookAt }: PetProps) {
 
   const isHappy = state.happiness > 60 && state.hunger > 40;
   const isSad = state.happiness < 30 || state.hunger < 20;
@@ -173,303 +175,328 @@ export default function Pet({ state, isActionActive, onPet, onRemoveItem, isLeve
 
       {/* Main Body - Pixelated */}
       <motion.div
-        drag
-        dragConstraints={{ left: -100, right: 100, top: -100, bottom: 50 }}
-        dragElastic={0.1}
-        onTap={onPet}
-        whileTap={{ scale: 0.95 }}
-        className={cn(
-          "relative w-44 h-40 flex flex-col items-center justify-center z-10 cursor-grab active:cursor-grabbing",
-          getBodyColor(),
-          stage === 'LEGENDARY' && "shadow-[0_0_30px_rgba(255,215,0,0.5)]"
-        )}
-        style={{
-          scale: getScale(),
-          boxShadow: `
-            inset -8px -8px 0px 0px rgba(0,0,0,0.1),
-            8px 0px 0px 0px #000,
-            -8px 0px 0px 0px #000,
-            0px 8px 0px 0px #000,
-            0px -8px 0px 0px #000
-            ${stage === 'LEGENDARY' ? ', 0px 0px 20px 5px rgba(255,215,0,0.4)' : ''}
-          `
+        animate={{ 
+          x: impact?.x || 0, 
+          rotate: impact?.rotate || 0 
         }}
-        animate={isEvolving ? {
-          scale: [getScale(), getScale() * 1.8, 0, getScale() * 1.2, getScale()],
-          rotate: [0, 0, 720, 720, 0],
-          filter: [
-            "brightness(1) contrast(1) grayscale(0)",
-            "brightness(0) contrast(10) grayscale(1)",
-            "brightness(10) contrast(10) grayscale(0)",
-            "brightness(1) contrast(1) grayscale(0)",
-            "brightness(1) contrast(1) grayscale(0)"
-          ],
-        } : state.isSleeping ? {
-          scaleY: [1, 0.92, 1],
-          y: [0, 10, 0],
-          scaleX: [1, 1.02, 1]
-        } : isActionActive === 'PLAY' ? {
-          y: [0, -60, 0, -60, 0],
-          x: [0, 40, -40, 40, 0],
-          rotate: [0, 360, 720, 360, 0], // Cambalhota!
-          scale: [1, 1.2, 0.8, 1.2, 1],
-          transition: { duration: 1.2, repeat: Infinity, ease: "easeInOut" }
-        } : isActionActive === 'FEED' ? {
-          y: [0, -50, 0, 0, 0],
-          scaleY: [1, 1.2, 0.8, 1.05, 1],
-          scaleX: [1, 0.8, 1.2, 0.95, 1],
-          transition: { 
-            duration: 1.5, 
-            times: [0, 0.3, 0.6, 0.8, 1],
-            ease: "easeInOut" 
-          }
-        } : isActionActive === 'PET' ? {
-          scale: [1, 1.12, 1],
-          rotate: [0, 5, -5, 5, 0],
-          y: [0, -10, 0],
-          filter: ["brightness(1)", "brightness(1.2)", "brightness(1)"],
-          transition: { duration: 1.5, repeat: 1, ease: "easeInOut" }
-        } : isActionActive === 'CLEAN' ? {
-          scale: [1, 1.05, 1],
-          rotate: [0, 2, -2, 0],
-          transition: { duration: 0.5, repeat: 2 }
-        } : isActionActive === 'GYM' ? {
-          y: [0, -30, 0, -30, 0],
-          scaleY: [1, 0.8, 1.1, 0.8, 1],
-          transition: { duration: 0.8, repeat: Infinity }
-        } : {
-          scaleY: [1, 0.94, 1],
-          scaleX: [1, 1.02, 1],
-          y: [0, 2, 0]
-        }}
-        transition={
-          isActionActive === 'FEED' ? { duration: 1.5, times: [0, 0.3, 0.6, 0.8, 1], ease: "easeInOut" } :
-          isActionActive === 'PLAY' ? { duration: 0.5, repeat: Infinity, ease: "easeInOut" } :
-          state.isSleeping ? { duration: 6, repeat: Infinity, times: [0, 0.5, 1], ease: "easeInOut" } :
-          isEvolving ? { duration: 2, ease: "easeInOut" } :
-          { duration: 10, repeat: Infinity, times: [0, 0.4, 1], ease: "easeInOut" }
-        }
+        transition={{ type: 'spring', stiffness: 150, damping: 10, mass: 1 }}
+        className="relative"
       >
-        {/* Ears - Pixelated (Now inside body for sync) */}
-        <div className="absolute -top-8 flex justify-between w-32 z-0">
-          <motion.div 
-            className="w-8 h-8 bg-[#6F4A30] border-4 border-black/20"
-            animate={state.isSleeping ? { 
-              rotate: [0, -8, -5, -8, 0],
-              y: [0, 2, 0]
-            } : isActionActive === 'PET' ? {
-              rotate: [0, -15, 0],
-              scale: [1, 1.1, 1]
-            } : { rotate: [0, 5, 0] }}
-            transition={{ 
-              duration: state.isSleeping ? 4 : 0.3, 
-              repeat: state.isSleeping ? Infinity : 1, 
-              ease: (v) => Math.floor(v * 4) / 4,
-              times: state.isSleeping ? [0, 0.1, 0.2, 0.3, 1] : undefined
-            }}
-          />
-          <motion.div 
-            className="w-8 h-8 bg-[#6F4A30] border-4 border-black/20"
-            animate={state.isSleeping ? { 
-              rotate: [0, 8, 5, 8, 0],
-              y: [0, 2, 0]
-            } : isActionActive === 'PET' ? {
-              rotate: [0, 15, 0],
-              scale: [1, 1.1, 1]
-            } : { rotate: [0, -5, 0] }}
-            transition={{ 
-              duration: state.isSleeping ? 4 : 0.3, 
-              repeat: state.isSleeping ? Infinity : 1, 
-              ease: (v) => Math.floor(v * 4) / 4,
-              times: state.isSleeping ? [0, 0.1, 0.2, 0.3, 1] : undefined
-            }}
-          />
-        </div>
-
-        {/* Adereços de fase removidos — a evolução agora é mostrada pelo cenário/quarto */}
-
-        {/* Equipped Clothing */}
-        {equipped.map((item: any) => (
-          <div 
-            key={item.instanceId} 
-            className={cn("absolute cursor-pointer pointer-events-auto transition-transform hover:brightness-110 active:scale-95 group", getEquipmentStyle(item.id))}
-          >
-            {item.icon}
-            
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onRemoveItem?.(item.instanceId);
+        <motion.div
+          drag
+          dragConstraints={{ left: -100, right: 100, top: -100, bottom: 50 }}
+          dragElastic={0.1}
+          onTap={onPet}
+          whileTap={{ scale: 0.95 }}
+          className={cn(
+            "relative w-44 h-40 flex flex-col items-center justify-center z-10 cursor-grab active:cursor-grabbing",
+            getBodyColor(),
+            stage === 'LEGENDARY' && "shadow-[0_0_30px_rgba(255,215,0,0.5)]"
+          )}
+          style={{
+            scale: getScale(),
+            boxShadow: `
+              inset -8px -8px 0px 0px rgba(0,0,0,0.1),
+              8px 0px 0px 0px #000,
+              -8px 0px 0px 0px #000,
+              0px 8px 0px 0px #000,
+              0px -8px 0px 0px #000
+              ${stage === 'LEGENDARY' ? ', 0px 0px 20px 5px rgba(255,215,0,0.4)' : ''}
+            `
+          }}
+          animate={isEvolving ? {
+            scale: [getScale(), getScale() * 1.8, 0, getScale() * 1.2, getScale()],
+            rotate: [0, 0, 720, 720, 0],
+            filter: [
+              "brightness(1) contrast(1) grayscale(0)",
+              "brightness(0) contrast(10) grayscale(1)",
+              "brightness(10) contrast(10) grayscale(0)",
+              "brightness(1) contrast(1) grayscale(0)",
+              "brightness(1) contrast(1) grayscale(0)"
+            ],
+          } : state.isSleeping ? {
+            scaleY: [1, 0.92, 1],
+            y: [0, 10, 0],
+            scaleX: [1, 1.02, 1]
+          } : isActionActive === 'PLAY' ? {
+            y: [0, -60, 0, -60, 0],
+            x: [0, 40, -40, 40, 0],
+            rotate: [0, 360, 720, 360, 0], // Cambalhota!
+            scale: [1, 1.2, 0.8, 1.2, 1],
+            transition: { duration: 1.2, repeat: Infinity, ease: "easeInOut" }
+          } : isActionActive === 'FEED' ? {
+            y: [0, -50, 0, 0, 0],
+            scaleY: [1, 1.2, 0.8, 1.05, 1],
+            scaleX: [1, 0.8, 1.2, 0.95, 1],
+            transition: { 
+              duration: 1.5, 
+              times: [0, 0.3, 0.6, 0.8, 1],
+              ease: "easeInOut" 
+            }
+          } : isActionActive === 'PET' ? {
+            scale: [1, 1.12, 1],
+            rotate: [0, 5, -5, 5, 0],
+            y: [0, -10, 0],
+            filter: ["brightness(1)", "brightness(1.2)", "brightness(1)"],
+            transition: { duration: 1.5, repeat: 1, ease: "easeInOut" }
+          } : isActionActive === 'CLEAN' ? {
+            scale: [1, 1.05, 1],
+            rotate: [0, 2, -2, 0],
+            transition: { duration: 0.5, repeat: 2 }
+          } : isActionActive === 'GYM' ? {
+            y: [0, -30, 0, -30, 0],
+            scaleY: [1, 0.8, 1.1, 0.8, 1],
+            transition: { duration: 0.8, repeat: Infinity }
+          } : {
+            scaleY: [1, 0.94, 1],
+            scaleX: [1, 1.02, 1],
+            y: [0, 2, 0]
+          }}
+          transition={
+            isActionActive === 'FEED' ? { duration: 1.5, times: [0, 0.3, 0.6, 0.8, 1], ease: "easeInOut" } :
+            isActionActive === 'PLAY' ? { duration: 0.5, repeat: Infinity, ease: "easeInOut" } :
+            state.isSleeping ? { duration: 6, repeat: Infinity, times: [0, 0.5, 1], ease: "easeInOut" } :
+            isEvolving ? { duration: 2, ease: "easeInOut" } :
+            { duration: 10, repeat: Infinity, times: [0, 0.4, 1], ease: "easeInOut" }
+          }
+        >
+          {/* Ears - Pixelated (Now inside body for sync) */}
+          <div className="absolute -top-8 flex justify-between w-32 z-0">
+            <motion.div 
+              className="w-8 h-8 bg-[#6F4A30] border-4 border-black/20"
+              animate={state.isSleeping ? { 
+                rotate: [0, -8, -5, -8, 0],
+                y: [0, 2, 0]
+              } : isActionActive === 'PET' ? {
+                rotate: [0, -15, 0],
+                scale: [1, 1.1, 1]
+              } : { rotate: [0, 5, 0] }}
+              transition={{ 
+                duration: state.isSleeping ? 4 : 0.3, 
+                repeat: state.isSleeping ? Infinity : 1, 
+                ease: (v) => Math.floor(v * 4) / 4,
+                times: state.isSleeping ? [0, 0.1, 0.2, 0.3, 1] : undefined
               }}
-              className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 border-2 border-white rounded-full flex items-center justify-center text-[10px] text-white font-bold shadow-lg opacity-0 group-hover:opacity-100 transition-opacity z-50 hover:bg-red-600"
-            >
-              X
-            </button>
+            />
+            <motion.div 
+              className="w-8 h-8 bg-[#6F4A30] border-4 border-black/20"
+              animate={state.isSleeping ? { 
+                rotate: [0, 8, 5, 8, 0],
+                y: [0, 2, 0]
+              } : isActionActive === 'PET' ? {
+                rotate: [0, 15, 0],
+                scale: [1, 1.1, 1]
+              } : { rotate: [0, -5, 0] }}
+              transition={{ 
+                duration: state.isSleeping ? 4 : 0.3, 
+                repeat: state.isSleeping ? Infinity : 1, 
+                ease: (v) => Math.floor(v * 4) / 4,
+                times: state.isSleeping ? [0, 0.1, 0.2, 0.3, 1] : undefined
+              }}
+            />
           </div>
-        ))}
 
-        {/* Glow effect for feeding */}
-        <AnimatePresence>
-          {isActionActive === 'FEED' && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: [0, 0.3, 0] }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.4, repeat: 2, ease: (v) => Math.floor(v * 2) / 2 }}
-              className="absolute inset-0 bg-white/30"
-            />
-          )}
-        </AnimatePresence>
+          {/* Adereços de fase removidos — a evolução agora é mostrada pelo cenário/quarto */}
 
-        {/* Shine effect for cleaning */}
-        <AnimatePresence>
-          {isActionActive === 'CLEAN' && (
-            <motion.div
-              initial={{ x: '-100%' }}
-              animate={{ x: '200%' }}
-              transition={{ duration: 0.8, ease: (v) => Math.floor(v * 8) / 8 }}
-              className="absolute inset-0 w-1/2 bg-white/20 z-10"
-            />
-          )}
-        </AnimatePresence>
-
-        {/* Petting Pulse Effect */}
-        <AnimatePresence>
-          {isActionActive === 'PET' && (
-            <motion.div
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: [0, 0.5, 0], scale: [0.8, 1.2, 1.5] }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.5, repeat: 2 }}
-              className="absolute inset-0 border-8 border-white/40 z-0"
-            />
-          )}
-        </AnimatePresence>
-        
-        {/* Workout / Gym Effect */}
-        <AnimatePresence>
-          {isActionActive === 'GYM' && (
-            <motion.div
-              initial={{ opacity: 0, y: 20, scale: 0 }}
-              animate={{ opacity: 1, y: -80, scale: 1.5 }}
-              exit={{ opacity: 0, scale: 0 }}
-              className="absolute z-30 text-4xl"
+          {/* Equipped Clothing */}
+          {equipped.map((item: any) => (
+            <div 
+              key={item.instanceId} 
+              className={cn("absolute cursor-pointer pointer-events-auto transition-transform hover:brightness-110 active:scale-95 group", getEquipmentStyle(item.id))}
             >
-              🏋️
+              {item.icon}
+              
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRemoveItem?.(item.instanceId);
+                }}
+                className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 border-2 border-white rounded-full flex items-center justify-center text-[10px] text-white font-bold shadow-lg opacity-0 group-hover:opacity-100 transition-opacity z-50 hover:bg-red-600"
+              >
+                X
+              </button>
+            </div>
+          ))}
+
+          {/* Glow effect for feeding */}
+          <AnimatePresence>
+            {isActionActive === 'FEED' && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: [0, 0.3, 0] }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.4, repeat: 2, ease: (v) => Math.floor(v * 2) / 2 }}
+                className="absolute inset-0 bg-white/30"
+              />
+            )}
+          </AnimatePresence>
+
+          {/* Shine effect for cleaning */}
+          <AnimatePresence>
+            {isActionActive === 'CLEAN' && (
+              <motion.div
+                initial={{ x: '-100%' }}
+                animate={{ x: '200%' }}
+                transition={{ duration: 0.8, ease: (v) => Math.floor(v * 8) / 8 }}
+                className="absolute inset-0 w-1/2 bg-white/20 z-10"
+              />
+            )}
+          </AnimatePresence>
+
+          {/* Petting Pulse Effect */}
+          <AnimatePresence>
+            {isActionActive === 'PET' && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: [0, 0.5, 0], scale: [0.8, 1.2, 1.5] }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.5, repeat: 2 }}
+                className="absolute inset-0 border-8 border-white/40 z-0"
+              />
+            )}
+          </AnimatePresence>
+          
+          {/* Workout / Gym Effect */}
+          <AnimatePresence>
+            {isActionActive === 'GYM' && (
+              <motion.div
+                initial={{ opacity: 0, y: 20, scale: 0 }}
+                animate={{ opacity: 1, y: -80, scale: 1.5 }}
+                exit={{ opacity: 0, scale: 0 }}
+                className="absolute z-30 text-4xl"
+              >
+                🏋️
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Eyes - Pixelated */}
+          <div className="flex gap-12 mb-2 z-20 relative">
+            {state.isSleeping ? (
+              <>
+                <div className="w-4 h-1 bg-black/40" />
+                <div className="w-4 h-1 bg-black/40" />
+              </>
+            ) : isDead ? (
+              <>
+                <div className="text-2xl font-bold text-black/40 font-display">X</div>
+                <div className="text-2xl font-bold text-black/40 font-display">X</div>
+              </>
+            ) : (
+              <>
+                <div className="relative w-4 h-4 bg-white/20 border-2 border-black/10">
+                  <motion.div 
+                    className="w-3 h-3 bg-black absolute"
+                    animate={{ 
+                      scaleY: [1, 0.1, 1],
+                      x: lookAt ? (lookAt.x * 4) : 0,
+                      y: lookAt ? (lookAt.y * 4) : 0,
+                    }}
+                    transition={{ 
+                      scaleY: { duration: 5, repeat: Infinity, repeatDelay: 3 },
+                      x: { type: 'spring', stiffness: 100 },
+                      y: { type: 'spring', stiffness: 100 }
+                    }}
+                  />
+                </div>
+                <div className="relative w-4 h-4 bg-white/20 border-2 border-black/10">
+                  <motion.div 
+                    className="w-3 h-3 bg-black absolute"
+                    animate={{ 
+                      scaleY: [1, 0.1, 1],
+                      x: lookAt ? (lookAt.x * 4) : 0,
+                      y: lookAt ? (lookAt.y * 4) : 0,
+                    }}
+                    transition={{ 
+                      scaleY: { duration: 5, repeat: Infinity, repeatDelay: 3 },
+                      x: { type: 'spring', stiffness: 100 },
+                      y: { type: 'spring', stiffness: 100 }
+                    }}
+                  />
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Snout Area - Pixelated */}
+          <div className={cn(
+            "relative w-24 h-16 flex flex-col items-center justify-center mt-1 border-b-4 border-black/10",
+            stage === 'BABY' ? "bg-[#966B47]" : stage === 'ADULT' ? "bg-[#4D2A0A]" : "bg-[#7A5235]"
+          )}>
+            {/* Nose */}
+            <motion.div 
+              className="flex gap-2 mb-2"
+              animate={state.isSleeping ? { y: [0, 1, 0] } : {}}
+              transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+            >
+              <div className="w-2 h-2 bg-black/40" />
+              <div className="w-2 h-2 bg-black/40" />
+            </motion.div>
+            
+            {/* Mouth */}
+            {!state.isSleeping && !isDead && (
+              <motion.div 
+                className={cn(
+                  "bg-black/40 transition-all duration-500",
+                  isVeryHappy 
+                    ? "w-10 h-2 rounded-b-lg mt-1" 
+                    : isHappy 
+                      ? "w-8 h-1 mt-1" 
+                      : "w-8 h-1 mb-2"
+                )}
+                animate={isActionActive === 'FEED' ? {
+                  scaleY: [1, 2.5, 1],
+                  y: [0, 2, 0]
+                } : {}}
+                transition={isActionActive === 'FEED' ? {
+                  duration: 0.2,
+                  repeat: 7,
+                  delay: 0.6,
+                  ease: "easeInOut"
+                } : {}}
+              />
+            )}
+            {isDead && <div className="w-8 h-1 bg-black/40 mt-1" />}
+          </div>
+
+          {/* Umbrella (if raining) */}
+          {weather === 'RAINY' && !state.isSleeping && (
+            <motion.div 
+              initial={{ scale: 0 }}
+              animate={{ scale: 1 }}
+              className="absolute -top-16 -right-8 text-6xl z-30"
+            >
+              ⛱️
             </motion.div>
           )}
-        </AnimatePresence>
 
-        {/* Eyes - Pixelated */}
-        <div className="flex gap-12 mb-2 z-20 relative">
-          {state.isSleeping ? (
-            <>
-              <div className="w-4 h-1 bg-black/40" />
-              <div className="w-4 h-1 bg-black/40" />
-            </>
-          ) : isDead ? (
-            <>
-              <div className="text-2xl font-bold text-black/40 font-display">X</div>
-              <div className="text-2xl font-bold text-black/40 font-display">X</div>
-            </>
-          ) : (
-            <>
-              <div className="relative">
-                <motion.div 
-                  className="w-4 h-4 bg-black"
-                  animate={{ scaleY: [1, 0.1, 1] }}
-                  transition={{ duration: 5, repeat: Infinity, repeatDelay: 3, ease: (v) => Math.floor(v * 2) / 2 }}
-                />
-              </div>
-              <div className="relative">
-                <motion.div 
-                  className="w-4 h-4 bg-black"
-                  animate={{ scaleY: [1, 0.1, 1] }}
-                  transition={{ duration: 5, repeat: Infinity, repeatDelay: 3, ease: (v) => Math.floor(v * 2) / 2 }}
-                />
-              </div>
-            </>
-          )}
-        </div>
-
-        {/* Snout Area - Pixelated */}
-        <div className={cn(
-          "relative w-24 h-16 flex flex-col items-center justify-center mt-1 border-b-4 border-black/10",
-          stage === 'BABY' ? "bg-[#966B47]" : stage === 'ADULT' ? "bg-[#4D2A0A]" : "bg-[#7A5235]"
-        )}>
-          {/* Nose */}
-          <motion.div 
-            className="flex gap-2 mb-2"
-            animate={state.isSleeping ? { y: [0, 1, 0] } : {}}
-            transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
-          >
-            <div className="w-2 h-2 bg-black/40" />
-            <div className="w-2 h-2 bg-black/40" />
-          </motion.div>
-          
-          {/* Mouth */}
-          {!state.isSleeping && !isDead && (
+          {/* Sick Visual (Thermometer) */}
+          {isSick && (
             <motion.div 
-              className={cn(
-                "bg-black/40 transition-all duration-500",
-                isVeryHappy 
-                  ? "w-10 h-2 rounded-b-lg mt-1" 
-                  : isHappy 
-                    ? "w-8 h-1 mt-1" 
-                    : "w-8 h-1 mb-2"
-              )}
-              animate={isActionActive === 'FEED' ? {
-                scaleY: [1, 2.5, 1],
-                y: [0, 2, 0]
-              } : {}}
-              transition={isActionActive === 'FEED' ? {
-                duration: 0.2,
-                repeat: 7,
-                delay: 0.6,
-                ease: "easeInOut"
-              } : {}}
-            />
+              animate={{ rotate: [0, 5, -5, 0] }}
+              transition={{ repeat: Infinity, duration: 1 }}
+              className="absolute -top-4 -left-4 text-3xl z-40"
+            >
+              🤒
+            </motion.div>
           )}
-          {isDead && <div className="w-8 h-1 bg-black/40 mt-1" />}
-        </div>
 
-        {/* Umbrella (if raining) */}
-        {weather === 'RAINY' && !state.isSleeping && (
-          <motion.div 
-            initial={{ scale: 0 }}
-            animate={{ scale: 1 }}
-            className="absolute -top-16 -right-8 text-6xl z-30"
-          >
-            ⛱️
-          </motion.div>
-        )}
+          {/* Blush - Pixelated */}
+          {isHappy && !state.isSleeping && (
+            <div className="absolute flex justify-between w-full px-8 top-16">
+              <div className="w-6 h-3 bg-pink-500/30" />
+              <div className="w-6 h-3 bg-pink-500/30" />
+            </div>
+          )}
 
-        {/* Sick Visual (Thermometer) */}
-        {isSick && (
-          <motion.div 
-            animate={{ rotate: [0, 5, -5, 0] }}
-            transition={{ repeat: Infinity, duration: 1 }}
-            className="absolute -top-4 -left-4 text-3xl z-40"
-          >
-            🤒
-          </motion.div>
-        )}
-
-        {/* Blush - Pixelated */}
-        {isHappy && !state.isSleeping && (
-          <div className="absolute flex justify-between w-full px-8 top-16">
-            <div className="w-6 h-3 bg-pink-500/30" />
-            <div className="w-6 h-3 bg-pink-500/30" />
-          </div>
-        )}
-
-        {/* Evolution Accessories */}
-        {stage === 'TEEN' && (
-          <div className="absolute top-0 left-0 w-full h-4 bg-red-500/80 border-b-2 border-black/20" title="Bandana" />
-        )}
-        {stage === 'LEGENDARY' && (
-          <div className="absolute -top-10 text-4xl animate-bounce">👑</div>
-        )}
+          {/* Evolution Accessories */}
+          {stage === 'TEEN' && (
+            <div className="absolute top-0 left-0 w-full h-4 bg-red-500/80 border-b-2 border-black/20" title="Bandana" />
+          )}
+          {stage === 'LEGENDARY' && (
+            <div className="absolute -top-10 text-4xl animate-bounce">👑</div>
+          )}
+        </motion.div>
       </motion.div>
 
       {/* Poop */}

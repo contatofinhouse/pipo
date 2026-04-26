@@ -19,6 +19,7 @@ interface Lesson {
 
 interface LearningPathProps {
   units: Unit[];
+  isLoading?: boolean;
   currentUnitId?: string;
   onBack: () => void;
   onStartLesson: (lessonId: string) => void;
@@ -29,7 +30,7 @@ interface LearningPathProps {
   };
 }
 
-export function LearningPath({ units, currentUnitId, onBack, onStartLesson, stats = { level: 1, exp: 0, streak: 0 } }: LearningPathProps) {
+export function LearningPath({ units, isLoading, currentUnitId, onBack, onStartLesson, stats = { level: 1, exp: 0, streak: 0 } }: LearningPathProps) {
   const activeLessonRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -137,12 +138,18 @@ export function LearningPath({ units, currentUnitId, onBack, onStartLesson, stat
             </div>
           ))}
 
-          {/* Coming Soon Placeholder */}
-          <div className="w-full text-center py-20 opacity-30">
-            <span className="text-[10px] font-bold uppercase border-2 border-black px-4 py-2">
-              MORE LESSONS SOON...
-            </span>
-          </div>
+          {isLoading && units.length === 0 ? (
+            <div className="w-full text-center py-20">
+              <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-black border-t-transparent mb-4"></div>
+              <p className="text-[10px] font-black uppercase">Sincronizando Currículo...</p>
+            </div>
+          ) : (
+            <div className="w-full text-center py-20 opacity-30">
+              <span className="text-[10px] font-bold uppercase border-2 border-black px-4 py-2">
+                {units.length === 0 ? "CARREGANDO LIÇÕES..." : "MORE LESSONS SOON..."}
+              </span>
+            </div>
+          )}
         </div>
       </div>
       

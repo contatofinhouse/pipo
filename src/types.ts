@@ -41,7 +41,14 @@ export interface PetState {
   fitness: number; // 0-100 (Exercise level)
   skinColor?: string; // Custom color for Pipo
   bgVariant?: number; // Background variant index (0, 1, 2)
+  lastLessonDate?: number; // Timestamp of the last completed lesson
   farmPlots?: any[]; // Pipo-Farm garden plots (persisted)
+  settings?: {
+    soundEnabled: boolean;
+    notifyHunger: boolean;
+    notifyEnergy: boolean;
+    notifyInactivity: boolean;
+  };
 }
 
 export type ActionType = 'FEED' | 'PLAY' | 'SLEEP' | 'CLEAN' | 'CHAT' | 'PET' | 'GYM';

@@ -38,14 +38,7 @@ export function InventoryModal({ inventory, onClose, onUseItem, onRemoveItem, on
               {inventory.length} / {COLLECTIBLES.length} Encontrados
             </p>
           </div>
-          {onGrantAll && (
-            <button 
-                onClick={onGrantAll} 
-                className="text-[8px] bg-yellow-400 border-2 border-black px-2 py-1 font-bold active:translate-y-0.5 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]"
-            >
-                🎁 CHEAT
-            </button>
-          )}
+          {/* Botão CHEAT removido para testes de limpeza */}
         </div>
         
         <AnimatePresence mode="wait">

@@ -2,7 +2,7 @@ import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface ArcadeMenuProps {
-  onGameSelect: (game: 'NONE' | 'TENNIS' | 'BOUNCE' | 'BALL_PIT' | 'PIPOMAN' | 'PONG' | 'ASTEROIDS' | 'TETRIS' | 'SNAKE' | 'WORMS' | 'FARM', actionUpdate?: boolean) => void;
+  onGameSelect: (game: 'NONE' | 'TENNIS' | 'BOUNCE' | 'BALL_PIT' | 'PONG' | 'TETRIS' | 'SNAKE' | 'FARM' | 'PIPO_BALLOONS' | 'THEME_QUIZ', actionUpdate?: boolean) => void;
   onClose: () => void;
 }
 
@@ -34,32 +34,11 @@ export function ArcadeMenu({ onGameSelect, onClose }: ArcadeMenuProps) {
             <span className="text-[10px] font-bold uppercase">Pipo Pong</span>
           </button>
           <button 
-            onClick={() => onGameSelect('ASTEROIDS')}
-            className="flex flex-col items-center gap-2 p-4 border-4 border-black bg-stone-900 hover:bg-black transition-colors text-white"
-          >
-            <span className="text-3xl">🚀</span>
-            <span className="text-[10px] font-bold uppercase">Asteroids</span>
-          </button>
-          <button 
-            onClick={() => onGameSelect('NONE', true)}
-            className="flex flex-col items-center gap-2 p-4 border-4 border-black bg-purple-100 hover:bg-purple-200 transition-colors"
-          >
-            <span className="text-3xl">🎸</span>
-            <span className="text-[10px] font-bold uppercase">Mini Guitarra</span>
-          </button>
-          <button 
             onClick={() => onGameSelect('BOUNCE', true)}
             className="flex flex-col items-center gap-2 p-4 border-4 border-black bg-green-100 hover:bg-green-200 transition-colors"
           >
             <span className="text-3xl">⚽</span>
             <span className="text-[10px] font-bold uppercase">Bola Saltitante</span>
-          </button>
-          <button 
-            onClick={() => onGameSelect('PIPOMAN')}
-            className="flex flex-col items-center gap-2 p-4 border-4 border-black bg-yellow-300 hover:bg-yellow-400 transition-colors"
-          >
-            <span className="text-3xl">👻</span>
-            <span className="text-[10px] font-bold uppercase">Pipo-Man</span>
           </button>
           <button 
             onClick={() => onGameSelect('TETRIS')}
@@ -76,11 +55,11 @@ export function ArcadeMenu({ onGameSelect, onClose }: ArcadeMenuProps) {
             <span className="text-[10px] font-bold uppercase">Pipo-Snake</span>
           </button>
           <button 
-            onClick={() => onGameSelect('WORMS')}
+            onClick={() => onGameSelect('PIPO_BALLOONS')}
             className="flex flex-col items-center gap-2 p-4 border-4 border-black bg-rose-200 hover:bg-rose-300 transition-colors"
           >
-            <span className="text-3xl">🐛</span>
-            <span className="text-[10px] font-bold uppercase">Pipo-Worms</span>
+            <span className="text-3xl">🎈</span>
+            <span className="text-[10px] font-bold uppercase">Pipo Balloons</span>
           </button>
           <button 
             onClick={() => onGameSelect('FARM')}
@@ -90,11 +69,18 @@ export function ArcadeMenu({ onGameSelect, onClose }: ArcadeMenuProps) {
             <span className="text-[10px] font-bold uppercase">Pipo-Farm</span>
           </button>
           <button 
-            onClick={() => onGameSelect('BALL_PIT', true)}
-            className="flex flex-col items-center justify-center p-4 border-4 border-black bg-red-100 hover:bg-red-200 col-span-3 transition-colors"
+            onClick={() => onGameSelect('THEME_QUIZ')}
+            className="flex flex-col items-center gap-2 p-4 border-4 border-black bg-purple-200 hover:bg-purple-300 transition-colors"
           >
-            <span className="text-3xl mb-2">🔴🔵🟡</span>
-            <span className="text-[10px] font-bold uppercase">Piscina de Bolinhas</span>
+            <span className="text-3xl">🧠</span>
+            <span className="text-[10px] font-bold uppercase">Theme Quiz</span>
+          </button>
+          <button 
+            onClick={() => onGameSelect('BALL_PIT', true)}
+            className="flex flex-col items-center justify-center p-4 border-4 border-black bg-red-100 hover:bg-red-200 transition-colors"
+          >
+            <span className="text-3xl">🔴🔵🟡</span>
+            <span className="text-[10px] font-bold uppercase">Bolinhas</span>
           </button>
         </div>
         <button 

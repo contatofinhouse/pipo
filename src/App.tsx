@@ -11,7 +11,8 @@ import {
   RefreshCw,
   Info,
   Package,
-  Dumbbell
+  Dumbbell,
+  Settings
 } from 'lucide-react';
 import { PetState, ActionType, Collectible, EvolutionStage, FoodType } from './types';
 import { INITIAL_STATS, DECAY_RATES, COLLECTIBLES } from './constants';
@@ -21,19 +22,36 @@ import { getPetResponse, EnglishResponse, getDailyNews, PipoNews } from './lib/g
 import { supabase } from './lib/supabase';
 import { Auth } from './components/Auth';
 import EggHatch from './components/EggHatch';
-import { PipoMan, PipoPong, PipoAsteroids } from './components/MiniGames';
+import { PipoPong, PipoAsteroids } from './components/MiniGames';
 import { PipoSnake } from './components/games/PipoSnake';
 import { PipoTetris } from './components/games/PipoTetris';
 import { PipoFarm, createEmptyFarmPlots } from './components/games/PipoFarm';
+import { PipoWords } from './components/games/PipoWords';
+import { PipoBalloons } from './components/games/PipoBalloons';
+import { PipoThemeQuiz } from './components/games/PipoThemeQuiz';
+import { GuitarOverlay } from './components/games/GuitarOverlay';
+import { BallPitOverlay } from './components/games/BallPitOverlay';
 import { RankingModal } from './components/RankingModal';
 import { FoodMenu } from './components/FoodMenu';
 import { ArcadeMenu } from './components/ArcadeMenu';
 import { InventoryModal } from './components/InventoryModal';
 import { LearningPath } from './components/LearningPath';
+import { SettingsModal } from './components/SettingsModal';
 import { ExerciseEngine } from './components/ExerciseEngine';
 import { LearningHeader } from './components/LearningHeader';
+import { requestNotificationPermissions, syncNotifications } from './lib/notifications';
+import { App as CapApp } from '@capacitor/app';
 
 type View = 'ROOM' | 'LEARNING' | 'EXERCISE';
+
+const EVOLUTION_DB_MAP: Record<number, EvolutionStage> = {
+  0: 'EGG', 1: 'BABY', 2: 'KIDS', 3: 'TEEN', 4: 'MASTER_TEEN', 
+  5: 'YOUNG_ADULT', 6: 'ADULT', 7: 'LEGENDARY'
+};
+
+const STAGE_DB_MAP: Record<string, number> = Object.entries(EVOLUTION_DB_MAP).reduce(
+  (acc, [k, v]) => ({ ...acc, [v]: parseInt(k) }), {}
+);
 
 function Game({ session, profile, initialGameState, onLogout }: { session: any, profile: any, initialGameState?: any, onLogout: () => void | Promise<void> }) {
   const [currentView, setCurrentView] = useState<View>('ROOM');
@@ -41,6 +59,7 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
   const [currentLessonQuestions, setCurrentLessonQuestions] = useState<any[]>([]);
   const [selectedLessonId, setSelectedLessonId] = useState<string | null>(null);
   const [lessonProgress, setLessonProgress] = useState<number | undefined>(undefined);
+  const [isCurriculumLoading, setIsCurriculumLoading] = useState(false);
   const [isReviewMode, setIsReviewMode] = useState(false);
   const [state, setState] = useState<PetState>(() => {
     const now = Date.now();
@@ -50,6 +69,24 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
     // PRIORIDADE 1: Banco de Dados (se existir e for um carregamento inicial)
     if (initialGameState) {
       const lastUpdate = initialGameState.updated_at ? new Date(initialGameState.updated_at).getTime() : now;
+      
+      // PRIORIDADE OFFLINE/SYNC: Se o localStorage for mais recente que o banco de dados,
+      // usamos ele. Isso evita perder mudanças recentes (como cor do Pipo ou cachecol) 
+      // quando o app fecha antes de terminar o sync no Supabase.
+      if (parsedStored && parsedStored.lastUpdate && parsedStored.lastUpdate > lastUpdate) {
+        const localDiff = now - parsedStored.lastUpdate;
+        return {
+          ...parsedStored,
+          hunger: Math.max(0, parsedStored.hunger - localDiff * DECAY_RATES.hunger),
+          happiness: Math.max(0, parsedStored.happiness - localDiff * DECAY_RATES.happiness),
+          energy: parsedStored.isSleeping
+            ? Math.min(100, parsedStored.energy + localDiff * DECAY_RATES.energySleep)
+            : Math.max(0, parsedStored.energy - localDiff * DECAY_RATES.energy),
+          fitness: Math.max(0, (parsedStored.fitness || 50) - localDiff * (DECAY_RATES.fitness || 0.00008)),
+          lastUpdate: now,
+        };
+      }
+
       const diff = now - lastUpdate;
 
       return {
@@ -60,15 +97,15 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
         happiness: Math.max(0, (initialGameState.happiness ?? (parsedStored?.happiness || 50)) - (diff * DECAY_RATES.happiness)),
         energy: Math.max(0, (initialGameState.energy ?? (parsedStored?.energy || 100)) - (diff * DECAY_RATES.energy)),
         health: initialGameState.health ?? (parsedStored?.health || 100),
-        evolutionStage: { 0: 'EGG', 1: 'BABY', 2: 'KIDS', 3: 'TEEN', 4: 'MASTER_TEEN', 5: 'YOUNG_ADULT', 6: 'ADULT', 7: 'LEGENDARY' }[initialGameState.evolution_stage as number] as EvolutionStage || 'BABY',
+        evolutionStage: EVOLUTION_DB_MAP[initialGameState.evolution_stage as number] || (initialGameState.english_level >= 6 ? 'KIDS' : 'BABY'),
         eggWarmth: initialGameState.evolution_stage === 0 ? 0 : 100,
         englishLevel: initialGameState.english_level ?? 1,
         englishExp: initialGameState.english_points ?? 0,
         lifetimeXP: initialGameState.lifetime_xp ?? (parsedStored?.lifetimeXP || 0),
-        badges: Array.isArray(initialGameState.badges) ? initialGameState.badges : (parsedStored?.badges || []),
-        inventory: Array.isArray(initialGameState.inventory) ? initialGameState.inventory : (parsedStored?.inventory || []),
-        equippedItems: Array.isArray(initialGameState.equipped_items) ? initialGameState.equipped_items : (parsedStored?.equippedItems || []),
-        placedItems: Array.isArray(initialGameState.placed_items) ? initialGameState.placed_items : (parsedStored?.placedItems || []),
+        badges: Array.isArray(initialGameState.badges) ? initialGameState.badges : (initialGameState ? [] : (parsedStored?.badges || [])),
+        inventory: Array.isArray(initialGameState.inventory) ? initialGameState.inventory : (initialGameState ? [] : (parsedStored?.inventory || [])),
+        equippedItems: Array.isArray(initialGameState.equipped_items) ? initialGameState.equipped_items : (initialGameState ? [] : (parsedStored?.equippedItems || [])),
+        placedItems: Array.isArray(initialGameState.placed_items) ? initialGameState.placed_items : (initialGameState ? [] : (parsedStored?.placedItems || [])),
         lastUpdate: now,
         birthday: initialGameState.birthday || parsedStored?.birthday || Date.now(),
         isSleeping: parsedStored?.isSleeping || false,
@@ -103,18 +140,11 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
 
   // Sanitizar estado legado (XP acumulado acima de 100)
   useEffect(() => {
-    // FIX PRO USUÁRIO: Garante que o Sushi está lá se ele disse que perdeu
-    const hasSushi = state.inventory.some(i => i.id === 'sushi');
-    if (!hasSushi && state.englishLevel >= 2) { // Sushi é raro, nível 2+ costuma ter
-      const sushiItem = COLLECTIBLES.find(c => c.id === 'sushi');
-      if (sushiItem) {
-        setState(prev => ({
-          ...prev,
-          inventory: [...prev.inventory, { ...sushiItem, foundAt: Date.now() }]
-        }));
-      }
-    }
+    // REMOVIDO: Fix do Sushi (Pode interferir em testes de limpeza)
+  }, []);
 
+  // Global Leveling System
+  useEffect(() => {
     if (state.englishExp >= 100) {
       setState(prev => {
         let newExp = prev.englishExp;
@@ -123,23 +153,42 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
           newExp -= 100;
           newLevel += 1;
         }
-        let newEvolutionStage: EvolutionStage = 'BABY';
-        if (newLevel >= 61) newEvolutionStage = 'LEGENDARY';
-        else if (newLevel >= 46) newEvolutionStage = 'ADULT';
-        else if (newLevel >= 36) newEvolutionStage = 'YOUNG_ADULT';
-        else if (newLevel >= 26) newEvolutionStage = 'MASTER_TEEN';
-        else if (newLevel >= 16) newEvolutionStage = 'TEEN';
-        else if (newLevel >= 6) newEvolutionStage = 'KIDS';
-
         return {
           ...prev,
           englishExp: newExp,
-          englishLevel: newLevel,
-          evolutionStage: newEvolutionStage
+          englishLevel: newLevel
         };
       });
+      setIsLevelUp(true);
+      setTimeout(() => setIsLevelUp(false), 4000);
+      playSound('LEVEL_UP');
     }
-  }, []);
+  }, [state.englishExp]);
+
+  // Automatic Evolution System
+  useEffect(() => {
+    const newLevel = state.englishLevel;
+    let newStage: EvolutionStage = 'BABY';
+    
+    if (newLevel >= 61) newStage = 'LEGENDARY';
+    else if (newLevel >= 46) newStage = 'ADULT';
+    else if (newLevel >= 36) newStage = 'YOUNG_ADULT';
+    else if (newLevel >= 26) newStage = 'MASTER_TEEN';
+    else if (newLevel >= 16) newStage = 'TEEN';
+    else if (newLevel >= 6) newStage = 'KIDS';
+
+    if (state.evolutionStage !== 'EGG' && state.evolutionStage !== newStage) {
+      setIsEvolving(true);
+      setTimeout(() => setIsEvolving(false), 3000);
+      
+      setState(prev => ({
+        ...prev,
+        evolutionStage: newStage
+      }));
+      
+      setMessage(`✨ INCRÍVEL! Pipo evoluiu para a fase ${newStage}!`);
+    }
+  }, [state.englishLevel]);
 
   const [isActionActive, setIsActionActive] = useState<ActionType | null>(null);
   const [isLevelUp, setIsLevelUp] = useState(false);
@@ -156,9 +205,23 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
   const [rankings, setRankings] = useState<any[]>([]);
   const [activeAnsweredIds, setActiveAnsweredIds] = useState<string[]>([]);
   const [showFoodMenu, setShowFoodMenu] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [activeFood, setActiveFood] = useState<FoodType | null>(null);
   const [lastFood, setLastFood] = useState<FoodType>('APPLE');
-  const [activeGame, setActiveGame] = useState<'NONE' | 'TENNIS' | 'BOUNCE' | 'BALL_PIT' | 'PIPOMAN' | 'PONG' | 'ASTEROIDS' | 'SNAKE' | 'TETRIS' | 'FARM'>('NONE');
+  const [activeGame, setActiveGame] = useState<'NONE' | 'TENNIS' | 'BOUNCE' | 'BALL_PIT' | 'GUITAR' | 'PONG' | 'ASTEROIDS' | 'SNAKE' | 'TETRIS' | 'FARM'>('NONE');
+  const [pipoImpact, setPipoImpact] = useState<{ x: number, rotate: number }>({ x: 0, rotate: 0 });
+
+  const handlePipoHit = (forceX: number) => {
+    // Increased force for visibility
+    const fx = Math.max(-1.5, Math.min(1.5, forceX));
+    setPipoImpact({ x: fx * 35, rotate: fx * 25 });
+    // Reset after a bit longer to see the oscillation
+    setTimeout(() => setPipoImpact({ x: 0, rotate: 0 }), 600);
+  };
+
+  const [pipoLookAt, setPipoLookAt] = useState<{ x: number, y: number } | null>(null);
+  const [ballPitBalls, setBallPitBalls] = useState<{id: number; x: number; y: number; vx: number; vy: number; emoji: string}[]>([]);
+  const ballPitRef = React.useRef<number>(0);
   const [weather, setWeather] = useState<'SUNNY' | 'RAINY' | 'CLOUDY'>('SUNNY');
   const [isSick, setIsSick] = useState(false);
   const [dailyUpdate, setDailyUpdate] = useState<PipoNews | null>(null);
@@ -184,7 +247,24 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
 
   const [quizFeedback, setQuizFeedback] = useState<'correct' | 'wrong' | 'combo' | null>(null);
 
-  // Auto-clear message bubble
+  useEffect(() => {
+    requestNotificationPermissions().then(() => {
+      syncNotifications(state);
+    });
+  }, []);
+
+  // Sync notifications when app goes to background
+  useEffect(() => {
+    const handler = CapApp.addListener('appStateChange', ({ isActive }) => {
+      if (!isActive) {
+        syncNotifications(state);
+      }
+    });
+    return () => {
+      handler.then(h => h.remove());
+    };
+  }, [state]);
+
   useEffect(() => {
     if (message && message !== "Olá! Eu sou o Pipo. Vamos brincar?") {
       const timer = setTimeout(() => {
@@ -251,6 +331,7 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
     if (currentView === 'LEARNING' && session?.user?.id) {
       const fetchCurriculum = async () => {
         try {
+          setIsCurriculumLoading(true);
           // 1. Buscar unidades
           const { data: unitsData, error: unitsError } = await supabase
             .from('learning_units')
@@ -353,6 +434,8 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
 
         } catch (err) {
           console.error("Erro ao carregar currículo:", err);
+        } finally {
+          setIsCurriculumLoading(false);
         }
       };
 
@@ -486,11 +569,24 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
 
       console.log("[PIPO-DEBUG] Progress saved successfully:", data);
 
-      // 2. Atualizar estado local do pet (Felicidade) - O XP ja foi dado atomicamente
+      // 2. Atualizar estado local do pet (Felicidade e Streak)
       setState(prev => {
+        const isSuccess = stats.score >= 80;
+        const newStreak = isSuccess ? (prev.userStreak || 0) + 1 : prev.userStreak;
+        const milestoneMsg = isSuccess && newStreak > 0 && newStreak % 10 === 0 ? `\n🔥 MARCO DE 10 STREAKS! +30 XP BÔNUS!` : "";
+
+        const successMsg = isSuccess
+          ? `Incrível! Você completou a lição com ${stats.score}%!${milestoneMsg}`
+          : `Bom esforço! Mas precisamos praticar mais essa lição.`;
+        
+        setMessage(successMsg);
+
         return {
           ...prev,
           happiness: Math.min(100, prev.happiness + 15),
+          userStreak: newStreak,
+          englishExp: (prev.englishExp || 0) + (isSuccess && newStreak % 10 === 0 ? 30 : 0),
+          lifetimeXP: (prev.lifetimeXP || 0) + (isSuccess && newStreak % 10 === 0 ? 30 : 0)
         };
       });
 
@@ -512,9 +608,11 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
         await Promise.all(badgePromises);
       }
 
-      setMessage(stats.score >= 80
-        ? `Incrível! Você completou a lição com ${stats.score}%!`
-        : `Bom esforço! Mas precisamos praticar mais essa lição.`);
+      const successMsg = stats.score >= 80
+        ? `Incrível! Você completou a lição com ${stats.score}%!${state.milestoneMessage || ""}`
+        : `Bom esforço! Mas precisamos praticar mais essa lição.`;
+      
+      setMessage(successMsg);
 
       setCurrentView('LEARNING'); // Volta para o mapa
     } catch (err) {
@@ -588,10 +686,9 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
     setState(prev => ({
       ...prev,
       englishExp: Math.min(200, (prev.englishExp || 0) + 50),
-      lifetimeXP: (prev.lifetimeXP || 0) + 50,
-      userStreak: (prev.userStreak || 0) + 1
+      lifetimeXP: (prev.lifetimeXP || 0) + 50
     }));
-    setMessage("🔥 COMBO DE OURO (7)! +50 XP e +1 Streak!");
+    setMessage("🔥 COMBO DE OURO (7)! +50 XP!");
 
     // Atualizar last_lesson_date to NOW para salvar o dia
     supabase.from('game_state').upsert({
@@ -610,7 +707,7 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
         happiness: Math.round(state.happiness),
         energy: Math.round(state.energy),
         health: Math.round(state.health),
-        evolution_stage: { 'EGG': 0, 'BABY': 1, 'KIDS': 2, 'TEEN': 3, 'MASTER_TEEN': 4, 'YOUNG_ADULT': 5, 'ADULT': 6, 'LEGENDARY': 7 }[state.evolutionStage] || 1,
+        evolution_stage: STAGE_DB_MAP[state.evolutionStage] ?? 1,
         inventory: Array.isArray(state.inventory) ? state.inventory : [],
         equipped_items: Array.isArray(state.equippedItems) ? state.equippedItems : [],
         placed_items: Array.isArray(state.placedItems) ? state.placedItems : [],
@@ -622,6 +719,8 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
         farm_plots: Array.isArray(state.farmPlots) ? state.farmPlots : [],
         skin_color: state.skinColor,
         badges: Array.isArray(state.badges) ? state.badges : [],
+        last_lesson_date: state.lastLessonDate ? new Date(state.lastLessonDate).toISOString() : null,
+        streak_days: state.userStreak || 0,
         updated_at: new Date().toISOString()
       };
 
@@ -758,7 +857,7 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
             happiness: Math.max(0, prev.happiness - 15),
             userStreak: 0
           }));
-          setMessage(`😢 Pipo ficou triste... Você não estudou por ${Math.floor(diffHours / 24)} dias! Perdeu ${penalty} XP.`);
+          // setMessage(`😢 Pipo ficou triste... Você não estudou por ${Math.floor(diffHours / 24)} dias! Perdeu ${penalty} XP.`);
 
           // Atualiza streak no banco
           supabase.from('game_state').update({ streak_days: 0 }).eq('user_id', session.user.id).then();
@@ -827,19 +926,46 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
     setShowInventory(false);
   };
 
-  const playSound = (type: 'CLEAN' | 'FEED' | 'LEVEL_UP' | 'PLAY' | 'PET' | 'GULP' | 'EVOLVE') => {
-    const sounds = {
-      CLEAN: 'https://assets.mixkit.co/active_storage/sfx/2568/2568-preview.mp3', // Sweep
-      FEED: 'https://assets.mixkit.co/active_storage/sfx/2013/2013-preview.mp3', // Sparkle/Bite
-      LEVEL_UP: 'https://assets.mixkit.co/active_storage/sfx/2019/2019-preview.mp3', // Celebration
-      PLAY: 'https://assets.mixkit.co/active_storage/sfx/2017/2017-preview.mp3', // Pop/Fun
-      PET: 'https://assets.mixkit.co/active_storage/sfx/2014/2014-preview.mp3', // Soft sparkle
-      GULP: 'https://assets.mixkit.co/active_storage/sfx/2015/2015-preview.mp3', // Gulp/Eat
-      EVOLVE: 'https://assets.mixkit.co/active_storage/sfx/2020/2020-preview.mp3' // Epic evolution
+  const playSound = (type: 'CLEAN' | 'FEED' | 'LEVEL_UP' | 'PLAY' | 'PET' | 'GULP' | 'EVOLVE', isLesson = false) => {
+    if (!isLesson && state.settings && state.settings.soundEnabled === false) return;
+    
+    const sounds: Record<string, string[]> = {
+      CLEAN: [
+        'https://assets.mixkit.co/active_storage/sfx/2568/2568-preview.mp3',
+        'https://assets.mixkit.co/active_storage/sfx/2567/2567-preview.mp3'
+      ],
+      FEED: [
+        'https://assets.mixkit.co/active_storage/sfx/2013/2013-preview.mp3',
+        'https://assets.mixkit.co/active_storage/sfx/2012/2012-preview.mp3',
+        'https://assets.mixkit.co/active_storage/sfx/2011/2011-preview.mp3'
+      ],
+      LEVEL_UP: [
+        'https://assets.mixkit.co/active_storage/sfx/2019/2019-preview.mp3',
+        'https://assets.mixkit.co/active_storage/sfx/2021/2021-preview.mp3'
+      ],
+      PLAY: [
+        'https://assets.mixkit.co/active_storage/sfx/2017/2017-preview.mp3',
+        'https://assets.mixkit.co/active_storage/sfx/2018/2018-preview.mp3',
+        'https://assets.mixkit.co/active_storage/sfx/2014/2014-preview.mp3'
+      ],
+      PET: [
+        'https://assets.mixkit.co/active_storage/sfx/2014/2014-preview.mp3',
+        'https://assets.mixkit.co/active_storage/sfx/2011/2011-preview.mp3',
+        'https://assets.mixkit.co/active_storage/sfx/2010/2010-preview.mp3'
+      ],
+      GULP: [
+        'https://assets.mixkit.co/active_storage/sfx/2015/2015-preview.mp3',
+        'https://assets.mixkit.co/active_storage/sfx/2016/2016-preview.mp3'
+      ],
+      EVOLVE: [
+        'https://assets.mixkit.co/active_storage/sfx/2020/2020-preview.mp3'
+      ]
     };
 
     try {
-      const audio = new Audio(sounds[type]);
+      const variants = sounds[type];
+      const randomUrl = variants[Math.floor(Math.random() * variants.length)];
+      const audio = new Audio(randomUrl);
       audio.volume = 0.4;
       audio.play().catch(e => console.log("Audio play blocked by browser:", e));
     } catch (e) {
@@ -951,19 +1077,19 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
     }, 2000);
   };
 
-  const handleArcadeSelect = (gameId: 'NONE' | 'TENNIS' | 'BOUNCE' | 'BALL_PIT' | 'PONG' | 'ASTEROIDS' | 'SNAKE' | 'TETRIS' | 'PIPOMAN' | 'WORMS' | 'FARM', isToy?: boolean) => {
+  const handleArcadeSelect = (gameId: 'NONE' | 'TENNIS' | 'BOUNCE' | 'BALL_PIT' | 'GUITAR' | 'PONG' | 'ASTEROIDS' | 'SNAKE' | 'TETRIS' | 'PIPO_WORDS' | 'PIPO_BALLOONS' | 'THEME_QUIZ' | 'FARM', isToy?: boolean) => {
     setActiveGame(gameId as typeof activeGame);
     setShowPlayMenu(false);
 
     if (gameId === 'TENNIS') {
-      handleAction('PLAY_MINI'); // Using an internal string to avoid opening menu again
+      handleAction('PLAY_MINI');
       setState(prev => ({ ...prev, happiness: Math.min(100, prev.happiness + 20), energy: Math.max(0, prev.energy - 10) }));
       setMessage("Pipo adora correr atrás da bolinha!");
       setTimeout(() => setActiveGame('NONE'), 10000);
-    } else if (gameId === 'NONE' && isToy) {
+    } else if (gameId === 'GUITAR') {
       handleAction('PLAY_MINI');
       setState(prev => ({ ...prev, happiness: Math.min(100, prev.happiness + 15), energy: Math.max(0, prev.energy - 5) }));
-      setMessage("Pipo está se sentindo um astro do rock!");
+      setMessage("🎸 Toque na tela para solar!");
     } else if (gameId === 'BOUNCE') {
       handleAction('PLAY_MINI');
       setState(prev => ({ ...prev, happiness: Math.min(100, prev.happiness + 25), energy: Math.max(0, prev.energy - 15) }));
@@ -971,9 +1097,18 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
       setTimeout(() => setActiveGame('NONE'), 15000);
     } else if (gameId === 'BALL_PIT') {
       handleAction('PLAY_MINI');
-      setState(prev => ({ ...prev, happiness: Math.min(100, prev.happiness + 30), energy: Math.max(0, prev.energy - 20) }));
-      setMessage("Pipo está mergulhando na diversão!");
-      setTimeout(() => setActiveGame('NONE'), 20000);
+      setState(prev => ({ ...prev, energy: Math.max(0, prev.energy - 10) }));
+      setMessage("Toque na tela para agitar as bolinhas! +Felicidade!");
+      // Initialize ball pit with 40 balls at bottom
+      const initialBalls = [...Array(40)].map((_, i) => ({
+        id: i,
+        x: Math.random() * (window.innerWidth - 40) + 20,
+        y: window.innerHeight - Math.random() * 200 - 80,
+        vx: 0,
+        vy: 0,
+        emoji: ['🔴', '🔵', '🟡', '🟢', '🟣', '🟠'][i % 6]
+      }));
+      setBallPitBalls(initialBalls);
     }
   };
 
@@ -1014,11 +1149,14 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
               "Desligando os motores... Fui!",
               "Bateria fraca... Pipo precisa repousar.",
               "Vou ali contar ovelhinhas e já volto (daqui a umas horas).",
-              "Pipo está entrando em modo de economia de energia. 🔋",
               "Shhh... O mestre está descansando. 😴",
               "Bons sonhos de capivara!",
               "Partiu mundo dos sonhos! 🌈",
-              "Até os astros precisam tirar um cochilo."
+              "Até os astros precisam tirar um cochilo.",
+              "Carregando as baterias...",
+              "Zzz... Sonhando com uma montanha de maçãs... 🍎",
+              "Modo soneca ativado!",
+              "Desligando os motores... Zzz..."
             ];
             setMessage(sleepMsgs[Math.floor(Math.random() * sleepMsgs.length)]);
           } else {
@@ -1034,7 +1172,9 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
               "Pipo despertou com fome de conhecimento!",
               "O mestre voltou! Sentiram saudades?",
               "Cinco minutinhos... brincadeira, tô acordado! 😜",
-              "Sinto que hoje vai ser um dia épico!"
+              "Sinto que hoje vai ser um dia épico!",
+              "A bateria do Pipo está em 100%!",
+              "Vamos conquistar o mundo (depois do café da manhã)!"
             ];
             setMessage(wakeMsgs[Math.floor(Math.random() * wakeMsgs.length)]);
           }
@@ -1151,7 +1291,7 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
         setQuizFeedback('combo');
         xpGained += 50; // Bônus Duolingo Style
         setMessage(`🔥🔥🔥 MEGA COMBO x${newStreak}! BÔNUS +50 XP! ${currentQuestionData.explanation}`);
-        playSound('EVOLVE');
+        playSound('EVOLVE', true);
       } else {
         setQuizFeedback('correct');
         const correctMsgs = [
@@ -1161,7 +1301,7 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
           `✅ Arrasou! ${currentQuestionData.explanation}`
         ];
         setMessage(correctMsgs[Math.floor(Math.random() * correctMsgs.length)]);
-        playSound('LEVEL_UP');
+        playSound('LEVEL_UP', true);
       }
     } else {
       setQuizFeedback('wrong');
@@ -1216,7 +1356,8 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
         englishExp: newExp,
         lifetimeXP: newLifetimeXP,
         inventory: newInventory,
-        happiness: newHappiness
+        happiness: newHappiness,
+        lastLessonDate: isCorrect ? Date.now() : prev.lastLessonDate
       };
     });
 
@@ -1224,19 +1365,6 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
     setTimeout(() => {
       showNextQuestion(questionBank, nextIndex);
     }, 2500);
-
-    // Atualiza todo o estado no Supabase (background)
-    if (session?.user?.id) {
-      supabase.from('game_state').update({
-        last_lesson_date: new Date().toISOString(),
-        streak_days: (state.userStreak || 0) + (questionsAnswered === 0 ? 1 : 0),
-        inventory: state.inventory,
-        english_level: state.englishLevel,
-        english_points: (state.englishExp + xpGained) % 200,
-        lifetime_xp: newLifetimeXP,
-        evolution_stage: state.evolutionStage === 'LEGENDARY' ? 4 : state.evolutionStage === 'ADULT' ? 3 : state.evolutionStage === 'TEEN' ? 2 : state.evolutionStage === 'BABY' ? 1 : 0
-      }).eq('user_id', session.user.id).then();
-    }
   };
 
   const handleChat = (e: React.FormEvent) => {
@@ -1245,7 +1373,15 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
     handleQuizAnswer(userInput.trim());
   };
 
-  const resetGame = () => {
+  const handleUpdateSettings = (settings: PetState['settings']) => {
+    setState(prev => {
+      const newState = { ...prev, settings };
+      syncNotifications(newState);
+      return newState;
+    });
+  };
+
+  const handleReset = () => {
     if (confirm("Tem certeza que deseja recomeçar? Seu amigo atual será perdido.")) {
       setState(INITIAL_STATS);
       setMessage("Olá! Eu sou o Pipo. Vamos brincar?");
@@ -1286,13 +1422,20 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
           playSound('PET');
         }}
         onHatch={() => {
-          setState(prev => ({
-            ...prev,
-            evolutionStage: 'BABY',
+          const newState = {
+            ...state,
+            evolutionStage: 'BABY' as EvolutionStage,
             eggWarmth: 100,
             birthday: Date.now()
-          }));
+          };
+          setState(newState);
           playSound('EVOLVE');
+          
+          // Save immediately
+          supabase.from('game_state').update({
+            evolution_stage: 1,
+            birthday: newState.birthday
+          }).eq('user_id', session.user.id).then();
         }}
       />
     );
@@ -1368,10 +1511,11 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
             🏆
           </button>
           <button
-            onClick={resetGame}
+            onClick={() => setShowSettings(true)}
             className="p-2 bg-white border-4 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-1 active:translate-y-1 transition-all"
+            title="Configurações"
           >
-            <RefreshCw size={16} />
+            <Settings size={16} />
           </button>
           <button
             onClick={onLogout}
@@ -1417,6 +1561,56 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
 
       {/* Mini Games Overlays */}
       <AnimatePresence>
+        {activeGame === 'PIPO_WORDS' && <PipoWords englishLevel={state.englishLevel || 1} 
+          onClose={() => setActiveGame('NONE')}
+          onReward={(score) => {
+            if (score > 0) {
+              setState(prev => ({
+                ...prev,
+                happiness: Math.min(100, prev.happiness + 20),
+                englishExp: (prev.englishExp + score) % 200,
+                lifetimeXP: (prev.lifetimeXP || 0) + score
+              }));
+              setMessage(`Incrível! Pipo ganhou +${score} XP!`);
+            }
+          }} 
+        />}
+        {activeGame === 'PIPO_BALLOONS' && <PipoBalloons englishLevel={state.englishLevel || 1} 
+          onClose={() => setActiveGame('NONE')}
+          onReward={(score) => {
+            if (score > 0) {
+              setState(prev => ({
+                ...prev,
+                happiness: Math.min(100, prev.happiness + 20),
+                englishExp: (prev.englishExp + score) % 200,
+                lifetimeXP: (prev.lifetimeXP || 0) + score
+              }));
+              setMessage(`Pipo salvou os balões! +${score} XP!`);
+            }
+          }} 
+        />}
+        {activeGame === 'THEME_QUIZ' && <PipoThemeQuiz englishLevel={state.englishLevel || 1} 
+          onClose={() => setActiveGame('NONE')}
+          onReward={(score) => {
+            if (score > 0) {
+              setState(prev => ({
+                ...prev,
+                happiness: Math.min(100, prev.happiness + 30),
+                englishExp: (prev.englishExp + score) % 200,
+                lifetimeXP: (prev.lifetimeXP || 0) + score
+              }));
+              setMessage(`Pipo é um gênio! +${score} XP!`);
+            }
+          }} 
+        />}
+        {activeGame === 'BALL_PIT' && (
+          <BallPitOverlay 
+            onClose={() => setActiveGame('NONE')} 
+            onTap={() => handleAction('PLAY')}
+            onPipoHit={handlePipoHit}
+            onLookAt={setPipoLookAt}
+          />
+        )}
         {activeGame === 'SNAKE' && <PipoSnake onClose={() => setActiveGame('NONE')} />}
         {activeGame === 'TETRIS' && <PipoTetris onClose={() => setActiveGame('NONE')} />}
         {activeGame === 'ASTEROIDS' && <PipoAsteroids onClose={() => setActiveGame('NONE')} />}
@@ -1485,42 +1679,25 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
         )}
       </AnimatePresence>
 
-      {/* Ball Pit Animation Overlay */}
+      {/* Ball Pit Interactive Overlay */}
       <AnimatePresence>
         {activeGame === 'BALL_PIT' && (
-          <div className="fixed inset-0 z-[40] overflow-hidden flex flex-col items-center justify-end pb-20 pointer-events-none">
-            <div className="absolute inset-0 pointer-events-none">
-              {[...Array(30)].map((_, i) => (
-                <motion.div
-                  key={`ball-${i}`}
-                  initial={{
-                    y: 600,
-                    x: Math.random() * window.innerWidth,
-                    scale: 0.5 + Math.random()
-                  }}
-                  animate={{
-                    y: [600, -100, 600],
-                    x: (Math.random() - 0.5) * 200 + (window.innerWidth / 2)
-                  }}
-                  transition={{
-                    duration: 2 + Math.random() * 3,
-                    repeat: Infinity,
-                    delay: i * 0.1,
-                    ease: "easeOut"
-                  }}
-                  className="absolute text-3xl"
-                >
-                  {['🔴', '🔵', '🟡', '🟢', '🟣', '🟠'][i % 6]}
-                </motion.div>
-              ))}
-            </div>
-            <button
-              onClick={() => setActiveGame('NONE')}
-              className="px-8 py-4 bg-white border-4 border-black font-bold uppercase text-xs shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] hover:bg-gray-100 transition-colors pointer-events-auto z-50 relative"
-            >
-              Parar Brincadeira
-            </button>
-          </div>
+          <BallPitOverlay 
+            onClose={() => { setActiveGame('NONE'); setBallPitBalls([]); }}
+            onTap={() => {
+              setState(prev => ({
+                ...prev,
+                happiness: Math.min(100, prev.happiness + 2)
+              }));
+            }}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Guitar Interactive Overlay */}
+      <AnimatePresence>
+        {activeGame === 'GUITAR' && (
+          <GuitarOverlay onClose={() => setActiveGame('NONE')} />
         )}
       </AnimatePresence>
       <AnimatePresence>
@@ -1537,11 +1714,15 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
               setMessage("Item excluído com sucesso!");
             }}
             onGrantAll={() => {
+              // Botão de Cheat removido para evitar confusão em testes
+              // Se quiser habilitar, descomente abaixo
+              /*
               setState(prev => ({
                 ...prev,
                 inventory: COLLECTIBLES.map(c => ({ ...c, foundAt: Date.now() }))
               }));
               setMessage("Coleção completa liberada! 🎉");
+              */
             }}
           />
         )}
@@ -2271,6 +2452,8 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
               foodType={activeFood}
               weather={weather}
               isSick={isSick}
+              impact={pipoImpact}
+              lookAt={pipoLookAt}
             />
 
             {/* Speech Bubble / Learning Interface - Anchored to Head */}
@@ -2283,10 +2466,12 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
                   initial={{ opacity: 0, scale: 0.8, y: 20 }}
                   animate={{ opacity: 1, scale: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.8, y: 20 }}
-                  className="absolute bottom-full mb-8 left-1/2 -translate-x-1/2 bg-white px-4 py-3 border-4 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] min-w-[180px] text-center z-20 cursor-grab active:cursor-grabbing"
+                  className="absolute bottom-full mb-8 left-1/2 -translate-x-1/2 bg-white px-4 py-3 border-4 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] min-w-[180px] text-center z-20 cursor-pointer active:cursor-grabbing"
+                  onClick={() => setMessage('')}
                 >
                   <p className="text-[10px] font-bold leading-relaxed pointer-events-none">{message}</p>
-                  <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 w-4 h-4 bg-white border-r-4 border-b-4 border-black rotate-45" />
+                  <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 w-4 h-4 bg-white border-r-4 border-b-4 border-black rotate-45 pointer-events-none" />
+
                 </motion.div>
               )}
 
@@ -2536,6 +2721,7 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
                   >
                     <LearningPath
                       units={units}
+                      isLoading={isCurriculumLoading}
                       onBack={() => setCurrentView('ROOM')}
                       onStartLesson={handleStartLesson}
                       stats={{
@@ -2576,34 +2762,6 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
         )}
       </AnimatePresence>
 
-      <AnimatePresence>
-        {activeGame === 'PIPOMAN' && (
-          <PipoMan
-            englishLevel={state.englishLevel}
-            onClose={(score) => {
-              setActiveGame('NONE');
-              const xpGained = Math.floor(score / 5);
-              setState(prev => {
-                let newExp = prev.englishExp + xpGained;
-                let newLevel = prev.englishLevel;
-                while (newExp >= 100) {
-                  newExp -= 100;
-                  newLevel += 1;
-                }
-                return {
-                  ...prev,
-                  englishExp: newExp,
-                  englishLevel: newLevel,
-                  happiness: Math.min(100, prev.happiness + 30),
-                  energy: Math.max(0, prev.energy - 15),
-                  evolutionStage: (newLevel >= 15 ? 'LEGENDARY' : newLevel >= 10 ? 'ADULT' : newLevel >= 5 ? 'TEEN' : 'BABY') as EvolutionStage
-                };
-              });
-              setMessage(`Fim de jogo! Você marcou ${score} e Pipo ganhou ${xpGained} XP!`);
-            }}
-          />
-        )}
-      </AnimatePresence>
 
       <AnimatePresence>
         {activeGame === 'PONG' && (
@@ -2624,8 +2782,7 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
                   englishLevel: newLevel,
                   lifetimeXP: prev.lifetimeXP + xpGained,
                   happiness: Math.min(100, prev.happiness + 20),
-                  energy: Math.max(0, prev.energy - 10),
-                  evolutionStage: (newLevel >= 15 ? 'LEGENDARY' : newLevel >= 10 ? 'ADULT' : newLevel >= 5 ? 'TEEN' : 'BABY') as EvolutionStage
+                  energy: Math.max(0, prev.energy - 10)
                 };
               });
               setMessage(`Fim de jogo! Você marcou ${score / 5} pontos e ganhou ${xpGained} XP!`);
@@ -2653,8 +2810,7 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
                   englishLevel: newLevel,
                   lifetimeXP: prev.lifetimeXP + xpGained,
                   happiness: Math.min(100, prev.happiness + 40),
-                  energy: Math.max(0, prev.energy - 20),
-                  evolutionStage: (newLevel >= 15 ? 'LEGENDARY' : newLevel >= 10 ? 'ADULT' : newLevel >= 5 ? 'TEEN' : 'BABY') as EvolutionStage
+                  energy: Math.max(0, prev.energy - 20)
                 };
               });
               setMessage(`Nave detonada! Você fez ${score} pontos e Pipo ganhou ${xpGained} XP!`);
@@ -2694,6 +2850,15 @@ function Game({ session, profile, initialGameState, onLogout }: { session: any, 
           />
         )}
       </AnimatePresence>
+
+      {showSettings && (
+        <SettingsModal
+          state={state}
+          onUpdateSettings={handleUpdateSettings}
+          onReset={handleReset}
+          onClose={() => setShowSettings(false)}
+        />
+      )}
     </div>
   );
 }

@@ -25,13 +25,13 @@ export function LearningHeader({
   isReviewMode
 }: LearningHeaderProps) {
   return (
-    <header className="pipo-hud-glass border-b-4 border-black p-3 flex items-center justify-between sticky top-0 z-[100] h-16">
+    <header className="pipo-hud-glass border-b-4 border-black p-4 flex items-center justify-between sticky top-0 z-[100] h-20 pt-8 sm:pt-4">
       <div className="flex items-center gap-3">
         <button 
           onClick={onExit}
-          className="p-1.5 hover:bg-gray-100 border-2 border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-0.5 active:translate-y-0.5 bg-white"
+          className="w-10 h-10 flex items-center justify-center hover:bg-gray-100 border-2 border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-0.5 active:translate-y-0.5 bg-white"
         >
-          <X size={18} />
+          <X size={24} />
         </button>
         
         {title && (
